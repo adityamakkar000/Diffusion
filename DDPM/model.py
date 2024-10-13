@@ -30,20 +30,66 @@ class ResNetBlock(nn.Module):
         return logits 
 
 
+
+class TimeEmbedding(nn.Module): 
+    
+    def __init__(self, device): 
+
+    
+        #TODO make positional embeeding
+        self.pos_embedding 
+
+    def forward(self, x): 
+    
+
+        t_emb = self.pos_embedding(x) 
+
+        return t_emb
+
+
+
+
 class Attention(nn.Module): 
 
-    def __init__(self, channels) 
+    def __init__(self, head_size, in_channel, n_emd, dropout, device): 
+        
+        super().__init__() 
+
+        assert n_emd % head_size == 0
+
+        self.qkv = nn.Conv2d(in_channel, 3 * in_channel,kernel_size=1, stride=1, padding=0) 
+        self.dropout = nn.Dropout(dropout)
+        self.head_size = head_size 
+        self.emd = n_emd
 
 
+    
+    def forwad(self, x): 
 
-    def forward() 
+        B,H,W,C = x.shape 
+        
+        qkv = self.qkv(x) 
+        qkv = qkv.view(B, C, H*W) 
+        qkv = qkv.permute(0, 2, 1) 
 
+        q,k,v = qkv.spilt(self.emb, dim=1) 
+
+        k = k.permute(0, 1, 3,2)  # transpose 
+        
+        
+        attn = F.softmax(((q @ k)/torch.sqrt(self.emb) ), dim=-1) 
+
+        self.logits = attn @ v 
+        
+        self.logits = self.dropout(self.logits) 
+
+        return self.logits 
 
 
 
 class DownSample(nn.Module): 
 
-    def __init__(self, ):
+    def __init__(self, device):
         
         self.block = nn.Sequential(
             self.layer1 = ResNetBlock() , 
@@ -59,7 +105,7 @@ class DownSample(nn.Module):
 
 class UpSample(nn.Module): 
 
-    def __init__(self): 
+    def __init__(self,device): 
 
         self.block = nn.Sequential( 
                 self.layer1 = ResNetBlock() , 
@@ -74,10 +120,10 @@ class UpSample(nn.Module):
 
 class UNET(nn.Module): 
 
-    def __init__(self): 
+    def __init__(self, device): 
 
         super().__init__() 
-        
+        self.queue = torch.zeros( ,device=device) 
 
 
     
