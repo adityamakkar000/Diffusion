@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 from torch import Tensor
 
-from typing import List, Set, Dict, Tuple, Optional
+from typing import List, Tuple, Optional
 
 
 class ResNetBlock(nn.Module):
@@ -33,7 +33,7 @@ class ResNetBlock(nn.Module):
         self.relu = nn.Relu()
 
 
-    def forward(self, x: Tensor[Tensor[Tensor[Tensor[float]]]]) -> Tensor[Tensor[Tensor[Tensor[float]]]]:
+    def forward(self, x: Tensor) -> Tensor:
         x = self.network(x) + x
 
         logits = self.relu(x)
@@ -45,7 +45,7 @@ class TimeEmbedding(nn.Module):
 
 
         #TODO make positional embeeding
-        self.pos_embedding
+        self.pos_embedding = 5
 
     def forward(self, x):
 
@@ -59,19 +59,19 @@ class Attention(nn.Module):
     def __init__(self,
                  n_heads: int,
                  in_channel: int,
-                 n_emd: int,
                  dropout: float,
                  device: Optional[str]) -> None:
 
         super().__init__()
-        assert n_emd % n_heads == 0
+        n_emb = in_channel
+        assert n_emb % n_heads == 0
         self.qkv = nn.Conv2d(in_channel, 3 * in_channel,kernel_size=1, stride=1, padding=0) # combine qkv for efficency
         self.proj = nn.Conv2d(in_channel, in_channel, kernel_size=1, stride=1, padding=0)
         self.dropout = nn.Dropout(dropout)
         self.n_heads = n_heads
-        self.emd = n_emd // n_heads # embedding per head
+        self.emd = n_emb // n_heads # embedding per head
 
-    def forward(self, x: Tensor[Tensor[Tensor[Tensor[float]]]]) -> Tensor[Tensor[Tensor[Tensor[float]]]]:
+    def forward(self, x: Tensor) -> Tensor:
 
         b,c,h,w = x.shape
         # pass through projection
@@ -97,10 +97,10 @@ class Sample(nn.Module):
                  stride: Tuple[Tuple[int,int], Tuple[int,int]],
                  padding: Tuple[Tuple[int, int], Tuple[int,int]],
                  n_heads: int,
-                 n_emb: int,
                  dropout: float,
-                 sample: Optional[str],
-                 device: Optional[str]) -> None:
+                 device: Optional[str], 
+                 upSample: Optional[bool] = False,
+                 ) -> None:
 
         super().__init__( )
 
@@ -109,16 +109,16 @@ class Sample(nn.Module):
 
         in_channel = channels[0][2]
         ResNetBlock_1_config = (kernels[0], channels[0], num_groups[0], stride[0], padding[0], device)
-        attn_config = (n_heads, in_channel, n_emb, dropout, device)
+        attn_config = (n_heads, in_channel, dropout, device)
         ResNetBlock_2_config = (kernels[1], channels[1], num_groups[1], stride[1], padding[1], device)
 
         self.block = nn.Sequential(
-                ResNetBlock(*ResNetBlock_1_config, upsample=sample) ,
+                ResNetBlock(*ResNetBlock_1_config, upsample=upSample) ,
                 Attention(*attn_config),
-                ResNetBlock(*ResNetBlock_2_config, upsample=sample),
+                ResNetBlock(*ResNetBlock_2_config, upsample=upSample),
         )
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         return self.block(x)
 
 class UNET(nn.Module):
@@ -130,7 +130,6 @@ class UNET(nn.Module):
                  strides: List[Tuple[Tuple[int,int], Tuple[int,int]]],
                  paddings: List[Tuple[Tuple[int,int], Tuple[int,int]]],
                  n_heads: List[int],
-                 n_emb: List[int],
                  dropout: List[float],
                  device: Optional[str]
                  ) -> None :
@@ -153,7 +152,6 @@ class UNET(nn.Module):
                                            strides[i],
                                            paddings[i],
                                            n_heads[i],
-                                           n_emb[i],
                                            dropout[i],
                                            device,
                                            sample=False)
@@ -173,14 +171,13 @@ class UNET(nn.Module):
                                            strides[i],
                                            paddings[i],
                                            n_heads[i],
-                                           n_emb[i],
                                            dropout[i],
                                            device,
                                            sample=True)
             for i in range(len(upsample_channels) - 1, -1, -1)
         ]
 
-    def forward(self, x: Tensor[Tensor[Tensor[Tensor[float]]]]) -> Tensor[Tensor[Tensor[Tensor[float]]]]:
+    def forward(self, x: Tensor) -> Tensor:
 
         downSample = []
 
@@ -189,7 +186,7 @@ class UNET(nn.Module):
             x = block(x)
             downSample.append(x)
 
-        downSample.pop() # we don't need last element since that is a skip connection and not residual
+        downSample.pop() # we don't need last element since it's a skip connection
 
         # upsample
         for block in self.upsample_layers:
@@ -199,5 +196,19 @@ class UNET(nn.Module):
 
         return x
 
-
 if __name__ == '__main__':
+    sample_batch = torch.randn(5,3,10,10)
+
+    model = UNET(
+        kernels=[(((3,3), (3,3)), ((3,3),(3,3))), (((3,3), (3,3)), ((3,3),(3,3))), (((3,3), (3,3)), ((3,3),(3,3)))]
+        channels= [((3,2,2] ],
+        num_groups=[],
+        strides=[],
+        paddings=[],
+        n_heads=[],
+        n_emd,
+        dropout
+    )
+
+    output = model(sample_batch)
+    print(output.shape)
