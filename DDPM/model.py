@@ -266,13 +266,14 @@ if __name__ == '__main__':
 
     device = 'mps' if torch.backends.mps.is_available() else 'cpu'
 
-    batch_size = 100
-    sample_batch = torch.randn(batch_size,3,16,16, device=device, dtype=torch.float32)
+    batch_size = 1
+    image_shape = (218,178)
+    sample_batch = torch.randn(batch_size,3,*image_shape, device=device, dtype=torch.float32)
     sample_batch.to(device)
 
     model = UNET(
         timeStep=1000,
-        orginalSize=(16,16),
+        orginalSize=image_shape,
         inChannels=3,
         channels=[128,256,512],
         strides=[2,2],
