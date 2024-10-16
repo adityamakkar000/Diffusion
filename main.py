@@ -2,7 +2,6 @@
 import torch
 import torch.nn.functional as F
 from torch import Tensor
-from torch.utils.data import DataLoader
 
 from setupDataset import get_dataloaders
 import matplotlib.pyplot as plt
@@ -13,19 +12,20 @@ import time
 batch_size_train = 128
 batch_size_accumlation_multiple = 4
 batch_size_test = 10
-lr = 0.01
+lr = 0.001
 
-PATH = 'model.pt' 
-
-train_data, test_data = get_dataloaders(batch_size_train, batch_size_test)
-train_data_iterator = iter(train_data)
-test_data_iterator = iter(test_data)
+PATH = 'model.pt'
 
 device = 'mps' if torch.backends.mps.is_available() else 'cpu'
 
 if torch.cuda.is_available():
     device = 'cuda'
     torch.set_default_tensor_type('torch.cuda.FloatTensor')
+
+
+train_data, test_data = get_dataloaders(batch_size_train, batch_size_test, device)
+train_data_iterator = iter(train_data)
+test_data_iterator = iter(test_data)
 
 # linear based noise scheduler
 
@@ -56,7 +56,7 @@ model = UNET(
         timeStep=T,
         orginalSize=size,
         inChannels=3,
-        channels=[8,32,64],
+        channels=[32,64,128],
         strides=[2,2],
         n_heads=[1],
         attn=[True, False, False],
@@ -72,17 +72,18 @@ optimizer = torch.optim.Adam(model.parameters(), lr)
 print("model params", sum(p.numel() for p in model.parameters()))
 print("starting training ...")
 
-max_steps = 100
+max_steps = 1000
 
 for _ in range(max_steps):
 
     optimizer.zero_grad()
     loss_metric = 0
+    start = time.time()
     for b in range(batch_size_accumlation_multiple):
       data, target = next(train_data_iterator)
       batch_image = data.to(device)
       batch_image = F.interpolate(batch_image, size)
-      start = time.time()
+
 
       t = torch.randint(1, T, (batch_size_train,)).int().to(device)
       alpha = get_alpha(t)
@@ -106,11 +107,13 @@ for _ in range(max_steps):
                 'loss': loss_metric
                                  }, PATH)
 
+
     if device == 'cuda':
       torch.cuda.synchronize()
     end = time.time() - start
     batch_idx = ((_ + 1) * batch_size_accumlation_multiple) % len(train_data)
     percentage_complete = 100.0 * (_ + 1) / max_steps
     batch_percentage_complete = 100.0 * (batch_idx) / len(train_data)
-
     print(f'Step {_}/{max_steps} | Batch {batch_percentage_complete:.2f}% | Loss: {loss_metric:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete')
+
+

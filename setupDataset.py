@@ -4,7 +4,7 @@ import torchvision
 import matplotlib.pyplot
 
 
-def get_dataloaders(batch_size_train=64, batch_size_test=256):
+def get_dataloaders(batch_size_train=64, batch_size_test=256, device='cpu'):
 
     train_loader = torch.utils.data.DataLoader(
             torchvision.datasets.CelebA(
@@ -18,7 +18,8 @@ def get_dataloaders(batch_size_train=64, batch_size_test=256):
             ),
                 ),
                 batch_size=batch_size_train,
-                shuffle=True
+                shuffle=True,
+                generator=torch.Generator(device=device),
 
             )
 
@@ -45,4 +46,4 @@ def get_dataloaders(batch_size_train=64, batch_size_test=256):
 
 
 if __name__ == '__main__':
-    print('good to go :)')
+    print('good to go')
