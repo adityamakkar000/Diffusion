@@ -2,6 +2,7 @@
 import torch
 import torch.nn.functional as F
 from torch import Tensor
+from itertools import cycle
 
 from setupDataset import get_dataloaders
 import matplotlib.pyplot as plt
@@ -24,7 +25,7 @@ if torch.cuda.is_available():
 
 
 train_data, test_data = get_dataloaders(batch_size_train, batch_size_test, device)
-train_data_iterator = iter(train_data)
+train_data_iterator = iter(cycle(train_data)) 
 test_data_iterator = iter(test_data)
 
 # linear based noise scheduler
@@ -115,4 +116,3 @@ for _ in range(max_steps):
     percentage_complete = 100.0 * (_ + 1) / max_steps
     batch_percentage_complete = 100.0 * (batch_idx) / len(train_data)
     print(f'Step {_}/{max_steps} | Batch {batch_percentage_complete:.2f}% | Loss: {loss_metric:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete')
-
