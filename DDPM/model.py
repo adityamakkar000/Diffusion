@@ -46,16 +46,24 @@ class ResNetBlock(nn.Module):
 
 class TimeEmbedding(nn.Module):
 
-    def __init__(self, device):
+    def __init__(self,
+                timesteps: int,
+                size: Tuple[int,int],
+
+                 ):
+
+        super().__init__()
+
+        self.pos_embedding = nn.Embedding(timesteps, size[0] * size[1])
+        self.size = size
+
+    def forward(self, t:Tensor):
 
 
-        #TODO make positional embeeding
-        self.pos_embedding = 5
+        t_emb = self.pos_embedding(t)
+        t_emb = t_emb.view(t_emb.shape[0], self.size[0], self.size[1]).unsqueeze(dim=1)
 
-    def forward(self, x):
-
-
-        t_emb = self.pos_embedding(x)
+        assert t_emb.dim() == 4 and t_emb.shape[1] == 1
 
         return t_emb
 
@@ -70,8 +78,6 @@ class Attention(nn.Module):
         super().__init__()
 
         n_emb = in_channel
-        print(in_channel)
-        print(n_heads)
         assert n_emb % n_heads == 0
 
         self.qkv = nn.Conv2d(in_channel, 3 * in_channel,kernel_size=1, stride=1, padding=0) # combine qkv for efficency
@@ -159,6 +165,8 @@ class Sample(nn.Module):
 class UNET(nn.Module):
 
     def __init__(self,
+                 timeStep: int,
+                 orginalSize: Tuple[int,int],
                  inChannels: int,
                  channels: List[int],
                  strides: List[int],
@@ -173,7 +181,7 @@ class UNET(nn.Module):
         assert len(n_heads) == sum(attn)
         assert len(channels) == len(strides) + 1 == len(attn) == len(resNetBlocks)
 
-        channels = [inChannels] + channels
+        channels = [inChannels + 1] + channels # for time embedding
         length = len(channels)
         n_heads_downsample = n_heads.copy()
         n_heads_upsample = n_heads.copy()
@@ -182,9 +190,10 @@ class UNET(nn.Module):
 
         n_heads_downsample.reverse()
         dropout_downsample.reverse()
-        print(n_heads_downsample)
         dummy=1
         strides.append(dummy) # make same length doens't get used
+
+        self.time_emb = TimeEmbedding(timeStep, orginalSize)
 
         self.downsample_layers = nn.ModuleList(
             [
@@ -226,8 +235,12 @@ class UNET(nn.Module):
             inChannels
         )
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, t: Tensor) -> Tensor:
 
+        assert t.shape[0] == x.shape[0]
+
+        time_emb = self.time_emb(t)
+        x = torch.cat([x, time_emb], dim=1)
         skip_connections = [x]
 
         for block in self.downsample_layers:
@@ -252,12 +265,14 @@ class UNET(nn.Module):
 if __name__ == '__main__':
 
     device = 'mps' if torch.backends.mps.is_available() else 'cpu'
-    sample_batch = torch.randn(1,3,128,128, device=device, dtype=torch.float32)
 
-
+    batch_size = 100
+    sample_batch = torch.randn(batch_size,3,16,16, device=device, dtype=torch.float32)
     sample_batch.to(device)
 
     model = UNET(
+        timeStep=1000,
+        orginalSize=(16,16),
         inChannels=3,
         channels=[128,256,512],
         strides=[2,2],
@@ -270,7 +285,8 @@ if __name__ == '__main__':
     model.to(device)
     print("params size", sum(p.numel() for p in model.parameters()))
 
+    print(device)
 
     with torch.no_grad():
-        output = model(sample_batch)
+        output = model(sample_batch, torch.Tensor([5 for i in range(batch_size)]).to(device).int())
     print(output.shape)
