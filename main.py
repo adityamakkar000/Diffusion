@@ -2,13 +2,23 @@
 import torch
 import torch.nn.functional as F
 from torch import Tensor
-from itertools import cycle
 
 from setupDataset import get_dataloaders
 import matplotlib.pyplot as plt
 from DDPM.model import UNET
 
 import time
+from itertools import cycle
+import argparse
+
+
+argparser = argparse.ArgumentParser()
+argparser.add_argument('-load', action='store_true')
+
+
+args = argparser.parse_args()
+
+
 
 batch_size_train = 128
 batch_size_accumlation_multiple = 4
@@ -25,7 +35,7 @@ if torch.cuda.is_available():
 
 
 train_data, test_data = get_dataloaders(batch_size_train, batch_size_test, device)
-train_data_iterator = iter(cycle(train_data)) 
+train_data_iterator = iter(cycle(train_data))
 test_data_iterator = iter(test_data)
 
 # linear based noise scheduler
@@ -69,6 +79,12 @@ model = UNET(
 model.to(device)
 
 optimizer = torch.optim.Adam(model.parameters(), lr)
+
+if args.load:
+    checkpoint = torch.load(PATH, weights_only=True)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    print("loaded model from checkpoint at step ", checkpoint['step'], "with loss", checkpoint['loss'])
 
 print("model params", sum(p.numel() for p in model.parameters()))
 print("starting training ...")

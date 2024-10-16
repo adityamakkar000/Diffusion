@@ -180,7 +180,7 @@ class UNET(nn.Module):
 
         assert len(n_heads) == sum(attn)
         assert len(channels) == len(strides) + 1 == len(attn) == len(resNetBlocks)
-
+        self.T = timeStep
         channels = [inChannels + 1] + channels # for time embedding
         length = len(channels)
         n_heads_downsample = n_heads.copy()
@@ -261,25 +261,33 @@ class UNET(nn.Module):
 
         return x
 
+
+
     def inference(self,
                   x: Tensor,
-                  t: Tensor,
                   alpha_array: Tensor
                   ) -> Tensor:
 
-        assert t.dim() == 1
         assert x.dim() == 4 and x.shape[0] == 1
 
-        alpha = alpha_array[t[0]]
-        alpha_sub1 = alpha_array[t[0] - 1]
-        alpha_current = alpha/alpha_sub1
-        noise_prediction = self.forward(x, t)
-        x = torch.sqrt(1/alpha) * (x - ((1-alpha_current)/(torch.sqrt(1 - alpha))) * noise_prediction)
+        with torch.no_grad():
+            model.eval()
+            for t in range(self.T - 1, 0, -1):
+                alpha = alpha_array[t]
+                alpha_sub1 = alpha_array[t - 1]
+                alpha_current = alpha/alpha_sub1
 
-        if t[0] > 1:
-            z = torch.randn_like(x)
-            x = x + torch.sqrt(1 - alpha_current) * z
-            return self.inference(x, t - 1, alpha_array)
+                noise_prediction = self.forward(x, torch.Tensor([t]).int().to(x.device))
+                x = torch.sqrt(1/alpha) * (x - ((1-alpha_current)/(torch.sqrt(1 - alpha))) * noise_prediction)
+
+                if t > 1:
+                    z = torch.randn_like(x)
+                    x = x + torch.sqrt(1 - alpha_current) * z
+
+                if t % 100 == 0:
+                    print(t)
+
+        model.train()
 
         return x
 
@@ -289,7 +297,7 @@ if __name__ == '__main__':
     device = 'mps' if torch.backends.mps.is_available() else 'cpu'
 
     batch_size = 1
-    image_shape = (218,178)
+    image_shape = (218//2,178//2)
     sample_batch = torch.randn(batch_size,3,*image_shape, device=device, dtype=torch.float32)
     sample_batch.to(device)
 
@@ -297,7 +305,7 @@ if __name__ == '__main__':
         timeStep=1000,
         orginalSize=image_shape,
         inChannels=3,
-        channels=[128,256,512],
+        channels=[32,64,128],
         strides=[2,2],
         n_heads=[1],
         attn=[True, False, False],
@@ -312,4 +320,24 @@ if __name__ == '__main__':
 
     with torch.no_grad():
         output = model(sample_batch, torch.Tensor([5 for i in range(batch_size)]).to(device).int())
+    print(output.shape)
+
+    sample = torch.randn(1,3,*image_shape, device=device, dtype=torch.float32)
+
+    B_1 = 10 ** -4
+    B_T = 0.02
+    T = 1000
+    def create_random_scheduler(t: int) -> float:
+        slope = (B_T - B_1)/(T - 1)
+        return slope * (t - 1) + B_1
+
+
+    noise_arr = torch.zeros(T).to(device)
+    noise_arr[0] = 1 - create_random_scheduler(1)
+    for i in range(1,T):
+        noise = create_random_scheduler(i + 1)
+        noise_arr[i] = noise_arr[i-1] * (1 - noise)
+
+    output = model.inference(sample, noise_arr)
+
     print(output.shape)
