@@ -15,6 +15,7 @@ batch_size_accumlation_multiple = 4
 batch_size_test = 10
 lr = 0.01
 
+PATH = 'model.pt' 
 
 train_data, test_data = get_dataloaders(batch_size_train, batch_size_test)
 train_data_iterator = iter(train_data)
@@ -71,7 +72,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr)
 print("model params", sum(p.numel() for p in model.parameters()))
 print("starting training ...")
 
-max_steps = 20
+max_steps = 100
 
 for _ in range(max_steps):
 
@@ -96,6 +97,14 @@ for _ in range(max_steps):
       loss_metric += loss.item()
 
     optimizer.step()
+
+    if _ % 10 == 0:
+      torch.save({
+                'step': _,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'loss': loss_metric
+                                 }, PATH)
 
     if device == 'cuda':
       torch.cuda.synchronize()
