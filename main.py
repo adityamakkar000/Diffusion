@@ -116,4 +116,3 @@ for _ in range(max_steps):
     batch_percentage_complete = 100.0 * (batch_idx) / len(train_data)
     print(f'Step {_}/{max_steps} | Batch {batch_percentage_complete:.2f}% | Loss: {loss_metric:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete')
 
-

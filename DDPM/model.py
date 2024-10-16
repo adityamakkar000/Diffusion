@@ -261,6 +261,28 @@ class UNET(nn.Module):
 
         return x
 
+    def inference(self,
+                  x: Tensor,
+                  t: Tensor,
+                  alpha_array: Tensor
+                  ) -> Tensor:
+
+        assert t.dim() == 1
+        assert x.dim() == 4 and x.shape[0] == 1
+
+        alpha = alpha_array[t[0]]
+        alpha_sub1 = alpha_array[t[0] - 1]
+        alpha_current = alpha/alpha_sub1
+        noise_prediction = self.forward(x, t)
+        x = torch.sqrt(1/alpha) * (x - ((1-alpha_current)/(torch.sqrt(1 - alpha))) * noise_prediction)
+
+        if t[0] > 1:
+            z = torch.randn_like(x)
+            x = x + torch.sqrt(1 - alpha_current) * z
+            return self.inference(x, t - 1, alpha_array)
+
+        return x
+
 
 if __name__ == '__main__':
 

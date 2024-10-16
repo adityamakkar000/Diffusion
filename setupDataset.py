@@ -5,7 +5,8 @@ import matplotlib.pyplot
 
 
 def get_dataloaders(batch_size_train=64, batch_size_test=256, device='cpu'):
-
+    if device == 'mps':
+        device = 'cpu'
     train_loader = torch.utils.data.DataLoader(
             torchvision.datasets.CelebA(
                 root="./files",
@@ -36,6 +37,7 @@ def get_dataloaders(batch_size_train=64, batch_size_test=256, device='cpu'):
                 ),
             batch_size=batch_size_test,
             shuffle=True,
+            generator=torch.Generator(device=device),
     )
 
 
