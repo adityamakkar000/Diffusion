@@ -10,79 +10,58 @@ import time
 from itertools import cycle
 import argparse
 
+from config import ExperimentConfig
+
 
 argparser = argparse.ArgumentParser()
 argparser.add_argument("-load", action="store_true")
 
 args = argparser.parse_args()
 
-batch_size_train = 128
-batch_size_accumlation_multiple = 4
-batch_size_test = 128
-lr = 0.001
-max_steps = 1000
-scale = 4
-size = (218 // scale, 178 // scale)
+config = ExperimentConfig()
 
+batch_size_train = config.batch_size_train
+batch_size_accumlation_multiple = config.batch_size_accumulation_multiple
+batch_size_test = config.batch_size_test
+lr = config.lr
+max_steps = config.max_steps
+scale = config.scale
+size = config.size
 
-PATH = "model.pt"
+B_1 = config.B_1
+B_T = config.B_T
+T = config.T
 
-device = "mps" if torch.backends.mps.is_available() else "cpu"
+diffusion_params = config.diffusion_params
 
-if torch.cuda.is_available():
-    device = "cuda"
-    torch.set_default_tensor_type("torch.cuda.FloatTensor")
+PATH = config.PATH
 
-
+device = config.device
 train_data, test_data = get_dataloaders(size, batch_size_train, batch_size_test)
 
 # linear based noise scheduler
-
-B_1 = 10**-4
-B_T = 0.02
-T = 1000
-
-
-def create_random_scheduler(t: int) -> float:
-    slope = (B_T - B_1) / (T - 1)
-    return slope * (t - 1) + B_1
-
-
-noise_arr = torch.zeros(T).to(device)
-noise_arr[0] = 1 - create_random_scheduler(1)
+beta_array = torch.linspace(B_1, B_T, T)
+alpha_bar_array = torch.zeros(T).to(device)
+alpha_bar_array[0] = 1 - beta_array[0]
 for i in range(1, T):
-    noise = create_random_scheduler(i + 1)
-    noise_arr[i] = noise_arr[i - 1] * (1 - noise)
+    alpha_bar_array[i] = alpha_bar_array[i - 1] * (1 - beta_array[i])
 
 
 def get_alpha(t: Tensor) -> float:
-    noise = noise_arr[t].view(-1, 1, 1, 1)
+    alpha_bar = alpha_bar_array[t].view(-1, 1, 1, 1)
     assert (
-        noise.dim() == 4
-        and noise.shape[0] == t.shape[0]
-        and noise.shape[1] == noise.shape[2] == noise.shape[3]
+        alpha_bar.dim() == 4
+        and alpha_bar.shape[0] == t.shape[0]
+        and alpha_bar.shape[1] == alpha_bar.shape[2] == alpha_bar.shape[3]
     )
-    return noise
+    return alpha_bar
 
 
-model = UNET(
-    timeStep=T,
-    orginalSize=size,
-    inChannels=3,
-    channels=[32, 64, 128],
-    strides=[2, 2],
-    n_heads=[1],
-    attn=[True, False, False],
-    resNetBlocks=[2, 2, 2],
-    dropout=[0.2],
-)
-
-model.to(device)
-
+model = UNET(**diffusion_params).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr)
 
 if args.load:
-    checkpoint = torch.load(PATH, weights_only=True)
+    checkpoint = torch.load(PATH, weights_only=True, map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])
     optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     print(
@@ -92,13 +71,8 @@ if args.load:
         checkpoint["loss"],
     )
 
-if device == "cuda":
-    print("compiling model ...")
-    model = torch.compile(model)
-
 print("model params", sum(p.numel() for p in model.parameters()))
 print("starting training ...")
-
 
 start = time.time()
 for _ in range(max_steps):
@@ -106,15 +80,15 @@ for _ in range(max_steps):
     optimizer.zero_grad()
     for b in range(batch_size_accumlation_multiple):
         data = train_data()
-        batch_image = data.to(device)
+        x_0 = data.to(device)
 
         t = torch.randint(1, T, (batch_size_train,)).int().to(device)
-        alpha = get_alpha(t)
-        z = torch.randn_like(batch_image)
-        single_image_noise = torch.sqrt(alpha) * batch_image + torch.sqrt(1 - alpha) * z
-        single_image_noise = single_image_noise.to(device)
+        alpha_bar = get_alpha(t)
+        z = torch.randn_like(x_0)
+        x_t = torch.sqrt(alpha_bar) * x_0 + torch.sqrt(1 - alpha_bar) * z
+        x_t = x_t.to(device)
 
-        predicted_noise = model(single_image_noise, t)
+        predicted_noise = model(x_t, t)
 
         loss = (
             1 / (T * batch_size_accumlation_multiple * batch_size_train)
@@ -124,10 +98,9 @@ for _ in range(max_steps):
 
         if b < batch_size_accumlation_multiple - 1:
             del loss
-        del batch_image
-        del data
+        del x_0
+        del x_t
         del predicted_noise
-        del single_image_noise
         del z
 
     optimizer.step()
@@ -151,15 +124,15 @@ for _ in range(max_steps):
           model.eval()
           loss_eval = 0
           for b in range(batch_size_accumlation_multiple):
-            batch_image = test_data()
-            test_batch_image = batch_image.to(device)
+            x_0 = test_data()
+            x_0 = x_0.to(device)
             t = torch.randint(1, T, (batch_size_test,)).int().to(device)
-            alpha = get_alpha(t)
-            z = torch.randn_like(test_batch_image)
-            single_image_noise = torch.sqrt(alpha) * test_batch_image + torch.sqrt(1 - alpha) * z
-            single_image_noise = single_image_noise.to(device)
+            alpha_bar = get_alpha(t)
+            z = torch.randn_like(x_0)
+            x_t = torch.sqrt(alpha_bar) * x_0 + torch.sqrt(1 - alpha_bar) * z
+            x_t = x_t.to(device)
 
-            predicted_noise = model(single_image_noise, t)
+            predicted_noise = model(x_t, t)
 
             loss = (
                 1 / (T * batch_size_test * batch_size_accumlation_multiple)
@@ -167,11 +140,12 @@ for _ in range(max_steps):
             loss_eval += loss.detach().item()
 
             del loss
-            del batch_image
-            del test_batch_image
+            del x_0
+            del x_t
             del predicted_noise
-            del single_image_noise
             del z
+
+          
 
         model.train()
 

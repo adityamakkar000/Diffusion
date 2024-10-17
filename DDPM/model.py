@@ -3,6 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torch import Tensor
+import matplotlib.pyplot as plt
+import numpy as np
 
 from typing import List, Tuple, Optional, Union
 
@@ -161,7 +163,7 @@ class UNET(nn.Module):
     def __init__(
         self,
         timeStep: int,
-        orginalSize: Tuple[int, int],
+        originalSize: Tuple[int, int],
         inChannels: int,
         channels: List[int],
         strides: List[int],
@@ -188,7 +190,7 @@ class UNET(nn.Module):
         dummy = 1
         strides.append(dummy)  # make same length doens't get used
 
-        self.time_emb = TimeEmbedding(timeStep, orginalSize)
+        self.time_emb = TimeEmbedding(timeStep, originalSize)
 
         self.downsample_layers = nn.ModuleList(
             [
@@ -251,31 +253,33 @@ class UNET(nn.Module):
 
         return x
 
-    def inference(self, x: Tensor, alpha_array: Tensor) -> Tensor:
+    def inference(self, x: Tensor, alpha_bar_array: Tensor) -> Tensor:
 
         assert x.dim() == 4 and x.shape[0] == 1
 
         with torch.no_grad():
             self.eval()
             for t in range(self.T - 1, 0, -1):
-                alpha = alpha_array[t]
-                alpha_sub1 = alpha_array[t - 1]
-                alpha_current = alpha / alpha_sub1
+                alpha_bar = alpha_bar_array[t]
+                alpha_bar_sub1 = alpha_bar_array[t - 1]
+                alpha_current = alpha_bar / alpha_bar_sub1
 
                 noise_prediction = self.forward(x, torch.Tensor([t]).int().to(x.device))
-                x = torch.sqrt(1 / alpha) * (
+                x = torch.sqrt(1 / alpha_bar) * (
                     x
-                    - ((1 - alpha_current) / (torch.sqrt(1 - alpha))) * noise_prediction
+                    - ((1 - alpha_current) / (torch.sqrt(1 - alpha_bar))) * noise_prediction
                 )
-
+                x = torch.clip(x, -1, 1)
                 if t > 1:
                     z = torch.randn_like(x)
                     x = x + torch.sqrt(1 - alpha_current) * z
 
                 if t % 100 == 0:
-                    print(t)
-
-                x = torch.clip(x, -1, 1)
+                    img_np = x.squeeze().permute(1, 2, 0).cpu().numpy()
+                    img_np = (img_np + 1) / 2 * 255
+                    img_np = img_np.astype(np.uint8)
+                    plt.imsave(f'samples/generated_image_{t}.png', img_np)
+                    print(f"saved image at step {t}")
 
         self.train()
 
