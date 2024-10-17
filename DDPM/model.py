@@ -271,7 +271,7 @@ class UNET(nn.Module):
         assert x.dim() == 4 and x.shape[0] == 1
 
         with torch.no_grad():
-            model.eval()
+            self.eval()
             for t in range(self.T - 1, 0, -1):
                 alpha = alpha_array[t]
                 alpha_sub1 = alpha_array[t - 1]
@@ -287,7 +287,7 @@ class UNET(nn.Module):
                 if t % 100 == 0:
                     print(t)
 
-        model.train()
+        self.train()
 
         return x
 

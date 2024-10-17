@@ -24,6 +24,7 @@ batch_size_train = 128
 batch_size_accumlation_multiple = 4
 batch_size_test = 10
 lr = 0.001
+max_steps = 1000
 
 PATH = 'model.pt'
 
@@ -84,18 +85,21 @@ if args.load:
     checkpoint = torch.load(PATH, weights_only=True)
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    print("loaded model from checkpoint at step ", checkpoint['step'], "with loss", checkpoint['loss'])
+    print("loaded model from checkpoint at step", checkpoint['step'], "with loss", checkpoint['loss'])
+
+if device == 'cuda':
+  print("compiling model ...")
+  model = torch.compile(model)
 
 print("model params", sum(p.numel() for p in model.parameters()))
 print("starting training ...")
 
-max_steps = 1000
 
+
+start = time.time()
 for _ in range(max_steps):
 
     optimizer.zero_grad()
-    loss_metric = 0
-    start = time.time()
     for b in range(batch_size_accumlation_multiple):
       data, target = next(train_data_iterator)
       batch_image = data.to(device)
@@ -108,15 +112,38 @@ for _ in range(max_steps):
       single_image_noise = torch.sqrt(alpha) * batch_image + torch.sqrt(1 - alpha) * z
       single_image_noise = single_image_noise.to(device)
 
-      predicted_noise = model(batch_image, t)
+      predicted_noise = model(single_image_noise, t)
 
       loss = (1/( batch_size_accumlation_multiple)) * F.mse_loss(predicted_noise, z)
       loss.backward()
-      loss_metric += loss.item()
+
+      if b < batch_size_accumlation_multiple - 1:
+        del loss
+      del batch_image
+      del data
+      del target
+      del predicted_noise
+      del single_image_noise
+      del z
 
     optimizer.step()
 
+
     if _ % 10 == 0:
+
+      loss_metric = loss.detach().item() * batch_size_accumlation_multiple
+      del loss
+
+      if device == 'cuda':
+        torch.cuda.synchronize()
+      end = time.time() - start
+
+      batch_idx = ((_ + 1) * batch_size_accumlation_multiple) % len(train_data)
+      percentage_complete = 100.0 * (_ + 1) / max_steps
+      batch_percentage_complete = 100.0 * (batch_idx) / len(train_data)
+
+      print(f'Step {_}/{max_steps} | Batch {batch_percentage_complete:.2f}% | Loss: {loss_metric:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete')
+
       torch.save({
                 'step': _,
                 'model_state_dict': model.state_dict(),
@@ -124,11 +151,4 @@ for _ in range(max_steps):
                 'loss': loss_metric
                                  }, PATH)
 
-
-    if device == 'cuda':
-      torch.cuda.synchronize()
-    end = time.time() - start
-    batch_idx = ((_ + 1) * batch_size_accumlation_multiple) % len(train_data)
-    percentage_complete = 100.0 * (_ + 1) / max_steps
-    batch_percentage_complete = 100.0 * (batch_idx) / len(train_data)
-    print(f'Step {_}/{max_steps} | Batch {batch_percentage_complete:.2f}% | Loss: {loss_metric:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete')
+      start = time.time()
