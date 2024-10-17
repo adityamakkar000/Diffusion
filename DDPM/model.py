@@ -9,26 +9,21 @@ from typing import List, Tuple, Optional, Union
 
 class ResNetBlock(nn.Module):
 
-    def __init__(self,
-                 numGroups: int,
-                 inChannels: int,
-                 outChannels: int
-                 ) -> None:
+    def __init__(self, numGroups: int, inChannels: int, outChannels: int) -> None:
 
         super().__init__()
-
 
         assert outChannels % numGroups == 0
 
         self.ch = inChannels
 
         self.network = nn.Sequential(
-                        nn.Conv2d(inChannels, outChannels, 3, 1,1),
-                        nn.GroupNorm(numGroups, outChannels),
-                        nn.ReLU(),
-                        nn.Conv2d(outChannels, outChannels, 3,1,1),
-                        nn.GroupNorm(numGroups, outChannels)
-                        )
+            nn.Conv2d(inChannels, outChannels, 3, 1, 1),
+            nn.GroupNorm(numGroups, outChannels),
+            nn.ReLU(),
+            nn.Conv2d(outChannels, outChannels, 3, 1, 1),
+            nn.GroupNorm(numGroups, outChannels),
+        )
 
         self.conv1x1 = nn.Conv2d(inChannels, outChannels, 1, 1, 0)
         self.relu = nn.ReLU()
@@ -44,21 +39,21 @@ class ResNetBlock(nn.Module):
 
         return logits
 
+
 class TimeEmbedding(nn.Module):
 
-    def __init__(self,
-                timesteps: int,
-                size: Tuple[int,int],
-
-                 ):
+    def __init__(
+        self,
+        timesteps: int,
+        size: Tuple[int, int],
+    ):
 
         super().__init__()
 
         self.pos_embedding = nn.Embedding(timesteps, size[0] * size[1])
         self.size = size
 
-    def forward(self, t:Tensor):
-
+    def forward(self, t: Tensor):
 
         t_emb = self.pos_embedding(t)
         t_emb = t_emb.view(t_emb.shape[0], self.size[0], self.size[1]).unsqueeze(dim=1)
@@ -67,59 +62,67 @@ class TimeEmbedding(nn.Module):
 
         return t_emb
 
+
 class Attention(nn.Module):
 
-    def __init__(self,
-                 n_heads: int,
-                 in_channel: int,
-                 dropout: float,
-                 ) -> None:
+    def __init__(
+        self,
+        n_heads: int,
+        in_channel: int,
+        dropout: float,
+    ) -> None:
 
         super().__init__()
 
         n_emb = in_channel
         assert n_emb % n_heads == 0
 
-        self.qkv = nn.Conv2d(in_channel, 3 * in_channel,kernel_size=1, stride=1, padding=0) # combine qkv for efficency
-        self.proj = nn.Conv2d(in_channel, in_channel, kernel_size=1, stride=1, padding=0)
+        self.qkv = nn.Conv2d(
+            in_channel, 3 * in_channel, kernel_size=1, stride=1, padding=0
+        )  # combine qkv for efficency
+        self.proj = nn.Conv2d(
+            in_channel, in_channel, kernel_size=1, stride=1, padding=0
+        )
         self.dropout = nn.Dropout(dropout)
         self.n_heads = n_heads
-        self.emb = n_emb // n_heads # embedding per head
+        self.emb = n_emb // n_heads  # embedding per head
 
     def forward(self, x: Tensor) -> Tensor:
 
         assert x.dim() == 4
 
-        b,c,h,w = x.shape
+        b, c, h, w = x.shape
         # pass through projection
         qkv = self.qkv(x)
-        qkv = qkv.view(b,3 * self.n_heads, c // self.n_heads, h * w)
-        qkv = qkv.transpose(-2, -1) # switch channels with time steps ( height and width)
-        q,k,v = qkv.split(self.n_heads, dim=1)
-        k= k.transpose(2,3)
-        attn = F.softmax((q @ k)/(self.emb ** 0.5) , dim=-1)
+        qkv = qkv.view(b, 3 * self.n_heads, c // self.n_heads, h * w)
+        qkv = qkv.transpose(
+            -2, -1
+        )  # switch channels with time steps ( height and width)
+        q, k, v = qkv.split(self.n_heads, dim=1)
+        k = k.transpose(2, 3)
+        attn = F.softmax((q @ k) / (self.emb**0.5), dim=-1)
         attn = self.dropout(attn)
-        self.logits = (attn @ v) # (b, hs, h * w, c // hs)
-        self.logits = self.logits.transpose(1,2).view(b, h * w, c)
-        self.logits = self.logits.permute(0,2,1) # reshape back into images
-        self.logits = self.logits.view(b, c, h,w )
+        self.logits = attn @ v  # (b, hs, h * w, c // hs)
+        self.logits = self.logits.transpose(1, 2).view(b, h * w, c)
+        self.logits = self.logits.permute(0, 2, 1)  # reshape back into images
+        self.logits = self.logits.view(b, c, h, w)
         return self.dropout(self.proj(self.logits))
-
 
 
 class Sample(nn.Module):
 
-    def __init__(self,
-                inChannel: int,
-                outChannel: int,
-                numGroups: int,
-                stride: Optional[int],
-                dropout: Optional[float],
-                n_heads: Union[int, None],
-                resNetBlocks: int,
-                upsample: bool,
-                sample: bool
-                 ):
+    def __init__(
+        self,
+        inChannel: int,
+        outChannel: int,
+        numGroups: int,
+        stride: Optional[int],
+        dropout: Optional[float],
+        n_heads: Union[int, None],
+        resNetBlocks: int,
+        upsample: bool,
+        sample: bool,
+    ):
         super().__init__()
 
         self.network = nn.ModuleList(
@@ -134,23 +137,15 @@ class Sample(nn.Module):
         )
 
         if n_heads is not None:
-            self.network.append(Attention(
-                n_heads,
-                outChannel,
-                dropout
-            ))
+            self.network.append(Attention(n_heads, outChannel, dropout))
 
         self.sampleBool = (sample, upsample)
-
 
         if sample:
             if not upsample:
                 self.sample = nn.Conv2d(outChannel, outChannel, 3, stride, 1)
 
-
-    def forward(self,
-                x: Tensor
-                ) -> Tensor:
+    def forward(self, x: Tensor) -> Tensor:
 
         for block in self.network:
             x = block(x)
@@ -161,27 +156,27 @@ class Sample(nn.Module):
         return x
 
 
-
 class UNET(nn.Module):
 
-    def __init__(self,
-                 timeStep: int,
-                 orginalSize: Tuple[int,int],
-                 inChannels: int,
-                 channels: List[int],
-                 strides: List[int],
-                 n_heads: List[int],
-                 resNetBlocks: List[int],
-                 attn: List[bool],
-                 dropout: List[float],
-                 ) -> None :
+    def __init__(
+        self,
+        timeStep: int,
+        orginalSize: Tuple[int, int],
+        inChannels: int,
+        channels: List[int],
+        strides: List[int],
+        n_heads: List[int],
+        resNetBlocks: List[int],
+        attn: List[bool],
+        dropout: List[float],
+    ) -> None:
 
         super().__init__()
 
         assert len(n_heads) == sum(attn)
         assert len(channels) == len(strides) + 1 == len(attn) == len(resNetBlocks)
         self.T = timeStep
-        channels = [inChannels + 1] + channels # for time embedding
+        channels = [inChannels + 1] + channels  # for time embedding
         length = len(channels)
         n_heads_downsample = n_heads.copy()
         n_heads_upsample = n_heads.copy()
@@ -190,8 +185,8 @@ class UNET(nn.Module):
 
         n_heads_downsample.reverse()
         dropout_downsample.reverse()
-        dummy=1
-        strides.append(dummy) # make same length doens't get used
+        dummy = 1
+        strides.append(dummy)  # make same length doens't get used
 
         self.time_emb = TimeEmbedding(timeStep, orginalSize)
 
@@ -199,41 +194,37 @@ class UNET(nn.Module):
             [
                 Sample(
                     channels[i],
-                    channels[i+1],
+                    channels[i + 1],
                     1,
                     strides[i],
                     dropout_downsample.pop() if attn[i] else None,
                     n_heads_downsample.pop() if attn[i] else None,
                     resNetBlocks[i],
                     upsample=False,
-                    sample=True if i < length - 1 else False
-                ) for i in range(length - 1)
+                    sample=True if i < length - 1 else False,
+                )
+                for i in range(length - 1)
             ]
-                                               )
-
-
+        )
 
         self.upsample_layers = nn.ModuleList(
             [
                 Sample(
-                    channels[i ] +( 0 if i == length - 1 else channels[i]),
+                    channels[i] + (0 if i == length - 1 else channels[i]),
                     channels[i - 1],
                     1,
                     strides[i - 1],
-                    dropout_upsample.pop() if attn[i-1] else None,
+                    dropout_upsample.pop() if attn[i - 1] else None,
                     n_heads_upsample.pop() if attn[i - 1] else None,
                     resNetBlocks[i - 1],
                     upsample=True,
-                    sample=True if i < length - 1 else False
-                ) for i in range(length - 1, 0, -1)
+                    sample=True if i < length - 1 else False,
+                )
+                for i in range(length - 1, 0, -1)
             ]
-                                               )
-
-        self.end = ResNetBlock(
-            1,
-            2 * channels[0],
-            inChannels
         )
+
+        self.end = ResNetBlock(1, 2 * channels[0], inChannels)
 
     def forward(self, x: Tensor, t: Tensor) -> Tensor:
 
@@ -246,7 +237,6 @@ class UNET(nn.Module):
         for block in self.downsample_layers:
             x = block(x)
             skip_connections.append(x)
-
 
         for i, block in enumerate(self.upsample_layers):
             sc = skip_connections.pop()
@@ -261,12 +251,7 @@ class UNET(nn.Module):
 
         return x
 
-
-
-    def inference(self,
-                  x: Tensor,
-                  alpha_array: Tensor
-                  ) -> Tensor:
+    def inference(self, x: Tensor, alpha_array: Tensor) -> Tensor:
 
         assert x.dim() == 4 and x.shape[0] == 1
 
@@ -275,10 +260,13 @@ class UNET(nn.Module):
             for t in range(self.T - 1, 0, -1):
                 alpha = alpha_array[t]
                 alpha_sub1 = alpha_array[t - 1]
-                alpha_current = alpha/alpha_sub1
+                alpha_current = alpha / alpha_sub1
 
                 noise_prediction = self.forward(x, torch.Tensor([t]).int().to(x.device))
-                x = torch.sqrt(1/alpha) * (x - ((1-alpha_current)/(torch.sqrt(1 - alpha))) * noise_prediction)
+                x = torch.sqrt(1 / alpha) * (
+                    x
+                    - ((1 - alpha_current) / (torch.sqrt(1 - alpha))) * noise_prediction
+                )
 
                 if t > 1:
                     z = torch.randn_like(x)
@@ -287,31 +275,34 @@ class UNET(nn.Module):
                 if t % 100 == 0:
                     print(t)
 
+                x = torch.clip(x, -1, 1)
+
         self.train()
 
         return x
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
 
-    device = 'mps' if torch.backends.mps.is_available() else 'cpu'
+    device = "mps" if torch.backends.mps.is_available() else "cpu"
 
     batch_size = 1
-    image_shape = (218//2,178//2)
-    sample_batch = torch.randn(batch_size,3,*image_shape, device=device, dtype=torch.float32)
+    image_shape = (218 // 2, 178 // 2)
+    sample_batch = torch.randn(
+        batch_size, 3, *image_shape, device=device, dtype=torch.float32
+    )
     sample_batch.to(device)
 
     model = UNET(
         timeStep=1000,
         orginalSize=image_shape,
         inChannels=3,
-        channels=[32,64,128],
-        strides=[2,2],
+        channels=[32, 64, 128],
+        strides=[2, 2],
         n_heads=[1],
         attn=[True, False, False],
-        resNetBlocks=[2,2,2],
-        dropout=[0.2]
-
+        resNetBlocks=[2, 2, 2],
+        dropout=[0.2],
     )
     model.to(device)
     print("params size", sum(p.numel() for p in model.parameters()))
@@ -319,24 +310,26 @@ if __name__ == '__main__':
     print(device)
 
     with torch.no_grad():
-        output = model(sample_batch, torch.Tensor([5 for i in range(batch_size)]).to(device).int())
+        output = model(
+            sample_batch, torch.Tensor([5 for i in range(batch_size)]).to(device).int()
+        )
     print(output.shape)
 
-    sample = torch.randn(1,3,*image_shape, device=device, dtype=torch.float32)
+    sample = torch.randn(1, 3, *image_shape, device=device, dtype=torch.float32)
 
-    B_1 = 10 ** -4
+    B_1 = 10**-4
     B_T = 0.02
     T = 1000
-    def create_random_scheduler(t: int) -> float:
-        slope = (B_T - B_1)/(T - 1)
-        return slope * (t - 1) + B_1
 
+    def create_random_scheduler(t: int) -> float:
+        slope = (B_T - B_1) / (T - 1)
+        return slope * (t - 1) + B_1
 
     noise_arr = torch.zeros(T).to(device)
     noise_arr[0] = 1 - create_random_scheduler(1)
-    for i in range(1,T):
+    for i in range(1, T):
         noise = create_random_scheduler(i + 1)
-        noise_arr[i] = noise_arr[i-1] * (1 - noise)
+        noise_arr[i] = noise_arr[i - 1] * (1 - noise)
 
     output = model.inference(sample, noise_arr)
 

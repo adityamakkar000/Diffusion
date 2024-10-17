@@ -1,4 +1,3 @@
-
 import torch
 import torch.nn.functional as F
 from torch import Tensor
@@ -13,69 +12,70 @@ import argparse
 
 
 argparser = argparse.ArgumentParser()
-argparser.add_argument('-load', action='store_true')
-
+argparser.add_argument("-load", action="store_true")
 
 args = argparser.parse_args()
 
-
-
 batch_size_train = 128
 batch_size_accumlation_multiple = 4
-batch_size_test = 10
+batch_size_test = 128
 lr = 0.001
 max_steps = 1000
+scale = 4
+size = (218 // scale, 178 // scale)
 
-PATH = 'model.pt'
 
-device = 'mps' if torch.backends.mps.is_available() else 'cpu'
+PATH = "model.pt"
+
+device = "mps" if torch.backends.mps.is_available() else "cpu"
 
 if torch.cuda.is_available():
-    device = 'cuda'
-    torch.set_default_tensor_type('torch.cuda.FloatTensor')
+    device = "cuda"
+    torch.set_default_tensor_type("torch.cuda.FloatTensor")
 
 
-train_data, test_data = get_dataloaders(batch_size_train, batch_size_test, device)
-train_data_iterator = iter(cycle(train_data))
-test_data_iterator = iter(test_data)
+train_data, test_data = get_dataloaders(size, batch_size_train, batch_size_test)
 
 # linear based noise scheduler
 
-B_1 = 10 ** -4
+B_1 = 10**-4
 B_T = 0.02
 T = 1000
+
+
 def create_random_scheduler(t: int) -> float:
-  slope = (B_T - B_1)/(T - 1)
-  return slope * (t - 1) + B_1
+    slope = (B_T - B_1) / (T - 1)
+    return slope * (t - 1) + B_1
 
 
 noise_arr = torch.zeros(T).to(device)
 noise_arr[0] = 1 - create_random_scheduler(1)
-for i in range(1,T):
-  noise = create_random_scheduler(i + 1)
-  noise_arr[i] = noise_arr[i-1] * (1 - noise)
+for i in range(1, T):
+    noise = create_random_scheduler(i + 1)
+    noise_arr[i] = noise_arr[i - 1] * (1 - noise)
 
 
 def get_alpha(t: Tensor) -> float:
-  noise = noise_arr[t].view(-1, 1,1,1)
-  assert noise.dim() == 4 and noise.shape[0] == t.shape[0] and noise.shape[1] == noise.shape[2] == noise.shape[3]
-  return noise
+    noise = noise_arr[t].view(-1, 1, 1, 1)
+    assert (
+        noise.dim() == 4
+        and noise.shape[0] == t.shape[0]
+        and noise.shape[1] == noise.shape[2] == noise.shape[3]
+    )
+    return noise
 
-scale = 4
-size = (218//scale,178//scale)
 
 model = UNET(
-        timeStep=T,
-        orginalSize=size,
-        inChannels=3,
-        channels=[32,64,128],
-        strides=[2,2],
-        n_heads=[1],
-        attn=[True, False, False],
-        resNetBlocks=[2,2,2],
-        dropout=[0.2]
-
-    )
+    timeStep=T,
+    orginalSize=size,
+    inChannels=3,
+    channels=[32, 64, 128],
+    strides=[2, 2],
+    n_heads=[1],
+    attn=[True, False, False],
+    resNetBlocks=[2, 2, 2],
+    dropout=[0.2],
+)
 
 model.to(device)
 
@@ -83,17 +83,21 @@ optimizer = torch.optim.Adam(model.parameters(), lr)
 
 if args.load:
     checkpoint = torch.load(PATH, weights_only=True)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    print("loaded model from checkpoint at step", checkpoint['step'], "with loss", checkpoint['loss'])
+    model.load_state_dict(checkpoint["model_state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    print(
+        "loaded model from checkpoint at step",
+        checkpoint["step"],
+        "with loss",
+        checkpoint["loss"],
+    )
 
-if device == 'cuda':
-  print("compiling model ...")
-  model = torch.compile(model)
+if device == "cuda":
+    print("compiling model ...")
+    model = torch.compile(model)
 
 print("model params", sum(p.numel() for p in model.parameters()))
 print("starting training ...")
-
 
 
 start = time.time()
@@ -101,54 +105,89 @@ for _ in range(max_steps):
 
     optimizer.zero_grad()
     for b in range(batch_size_accumlation_multiple):
-      data, target = next(train_data_iterator)
-      batch_image = data.to(device)
-      batch_image = F.interpolate(batch_image, size)
+        data = train_data()
+        batch_image = data.to(device)
+
+        t = torch.randint(1, T, (batch_size_train,)).int().to(device)
+        alpha = get_alpha(t)
+        z = torch.randn_like(batch_image)
+        single_image_noise = torch.sqrt(alpha) * batch_image + torch.sqrt(1 - alpha) * z
+        single_image_noise = single_image_noise.to(device)
+
+        predicted_noise = model(single_image_noise, t)
+
+        loss = (
+            1 / (T * batch_size_accumlation_multiple * batch_size_train)
+        ) * F.mse_loss(predicted_noise, z, reduction="sum")
+        loss.backward()
 
 
-      t = torch.randint(1, T, (batch_size_train,)).int().to(device)
-      alpha = get_alpha(t)
-      z = torch.randn_like(batch_image)
-      single_image_noise = torch.sqrt(alpha) * batch_image + torch.sqrt(1 - alpha) * z
-      single_image_noise = single_image_noise.to(device)
-
-      predicted_noise = model(single_image_noise, t)
-
-      loss = (1/( batch_size_accumlation_multiple)) * F.mse_loss(predicted_noise, z)
-      loss.backward()
-
-      if b < batch_size_accumlation_multiple - 1:
-        del loss
-      del batch_image
-      del data
-      del target
-      del predicted_noise
-      del single_image_noise
-      del z
+        if b < batch_size_accumlation_multiple - 1:
+            del loss
+        del batch_image
+        del data
+        del predicted_noise
+        del single_image_noise
+        del z
 
     optimizer.step()
 
-
     if _ % 10 == 0:
 
-      loss_metric = loss.detach().item() * batch_size_accumlation_multiple
-      del loss
+        loss_metric = loss.detach().item() * batch_size_accumlation_multiple
+        del loss
 
-      if device == 'cuda':
-        torch.cuda.synchronize()
-      end = time.time() - start
+        if device == "cuda":
+            torch.cuda.synchronize()
+        end = time.time() - start
 
-      batch_idx = ((_ + 1) * batch_size_accumlation_multiple) % len(train_data)
-      percentage_complete = 100.0 * (_ + 1) / max_steps
-      batch_percentage_complete = 100.0 * (batch_idx) / len(train_data)
+        batch_idx = (
+            (_ + 1) * batch_size_accumlation_multiple * batch_size_train
+        ) % len(train_data)
+        percentage_complete = 100.0 * (_ + 1) / max_steps
+        batch_percentage_complete = 100.0 * (batch_idx) / len(train_data)
 
-      print(f'Step {_}/{max_steps} | Batch {batch_percentage_complete:.2f}% | Loss: {loss_metric:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete')
+        with torch.no_grad():
+          model.eval()
+          loss_eval = 0
+          for b in range(batch_size_accumlation_multiple):
+            batch_image = test_data()
+            test_batch_image = batch_image.to(device)
+            t = torch.randint(1, T, (batch_size_test,)).int().to(device)
+            alpha = get_alpha(t)
+            z = torch.randn_like(test_batch_image)
+            single_image_noise = torch.sqrt(alpha) * test_batch_image + torch.sqrt(1 - alpha) * z
+            single_image_noise = single_image_noise.to(device)
 
-      torch.save({
-                'step': _,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'loss': loss_metric
-                                 }, PATH)
+            predicted_noise = model(single_image_noise, t)
 
-      start = time.time()
+            loss = (
+                1 / (T * batch_size_test * batch_size_accumlation_multiple)
+            ) * F.mse_loss(predicted_noise, z, reduction="sum")
+            loss_eval += loss.detach().item()
+
+            del loss
+            del batch_image
+            del test_batch_image
+            del predicted_noise
+            del single_image_noise
+            del z
+
+        model.train()
+
+
+        print(
+            f"Step {_}/{max_steps} | Batch {batch_percentage_complete:.2f}% | Train Loss: {loss_metric:.6f} | Eval Loss: {loss_eval:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete"
+        )
+
+        torch.save(
+            {
+                "step": _,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "loss": round(loss_metric, 6),
+            },
+            PATH,
+        )
+
+        start = time.time()
