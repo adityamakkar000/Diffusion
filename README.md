@@ -1,3 +1,3 @@
-# Diffusion Implmentations
+# Diffusion Implementation
 
-Implmentation of ![Denoising Diffusion Probablistic Models](https://arxiv.org/pdf/2006.11239) in PyTorch. 
+Implementation of [Denoising Diffusion Probabilistic Models](https://arxiv.org/pdf/2006.11239) in PyTorch.
