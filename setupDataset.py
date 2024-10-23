@@ -15,8 +15,6 @@ class ToScaleTensor:
     def __call__(self, img: Tensor) -> Tensor:
         img = (2.0 / 255.0) * torch.tensor(np.array(img)).permute(2, 0, 1) - 1.0
         img = img.unsqueeze(dim=0)
-        img = interpolate(img, self.size)
-        img.squeeze(dim=0)
         return img
 
 
@@ -46,6 +44,7 @@ def get_dataloaders(size, batch_size_train=64, batch_size_test=256):
             transform=torchvision.transforms.Compose(
                 [
                     ToScaleTensor(size),
+                    torchvision.transforms.Resize((size[0], size[1])),
                 ]
             ),
         ),
@@ -58,6 +57,7 @@ def get_dataloaders(size, batch_size_train=64, batch_size_test=256):
             transform=torchvision.transforms.Compose(
                 [
                     ToScaleTensor(size),
+                    torchvision.transforms.Resize((size[0], size[1])),
                 ]
             ),
             split="test",

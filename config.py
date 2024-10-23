@@ -3,13 +3,13 @@ import torch
 
 @dataclass
 class ExperimentConfig:
-    batch_size_train: int = 128
+    batch_size_train: int = 4
     batch_size_accumulation_multiple: int = 4
-    batch_size_test: int = 128
+    batch_size_test: int = 4
     lr: float = 0.001
     max_steps: int = 1000
     scale: int = 4
-    size: tuple[int, int] = field(default_factory=lambda: (218 // 4, 178 // 4))
+    size: tuple[int, int] = field(default_factory=lambda: (64, 64))
 
     B_1: float = 1e-4
     B_T: float = 0.02
@@ -17,7 +17,7 @@ class ExperimentConfig:
 
     diffusion_params: dict = field(default_factory=lambda: {
         'timeStep': 1000,
-        'originalSize': (218 // 4, 178 // 4), 
+        'originalSize': (64,64),
         'inChannels': 3,
         'channels': [32, 64, 128],
         'strides': [2, 2],
