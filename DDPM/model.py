@@ -55,12 +55,14 @@ class TimeEmbedding(nn.Module):
         self.pos_embedding = nn.Embedding(timesteps, size[0] * size[1])
         self.size = size
 
+
     def forward(self, t: Tensor):
 
-        t_emb = self.pos_embedding(t)
-        t_emb = t_emb.view(t_emb.shape[0], self.size[0], self.size[1]).unsqueeze(dim=1)
+        assert t.dim() == 1
 
-        assert t_emb.dim() == 4 and t_emb.shape[1] == 1
+        b = t.shape[0]
+        t_emb = self.pos_embedding(t)
+        t_emb = t_emb.view(b,1,self.size[0], self.size[1])
 
         return t_emb
 
@@ -178,7 +180,7 @@ class UNET(nn.Module):
         assert len(n_heads) == sum(attn)
         assert len(channels) == len(strides) + 1 == len(attn) == len(resNetBlocks)
         self.T = timeStep
-        channels = [inChannels + 1] + channels  # for time embedding
+        channels = [inChannels] + channels  # for time embedding
         length = len(channels)
         n_heads_downsample = n_heads.copy()
         n_heads_upsample = n_heads.copy()
@@ -190,8 +192,11 @@ class UNET(nn.Module):
         dummy = 1
         strides.append(dummy)  # make same length doens't get used
 
+        # start
         self.time_emb = TimeEmbedding(timeStep, originalSize)
+        self.conv_in = nn.Conv2d(inChannels, inChannels, 3, 1, 1)
 
+        # downsample layers
         self.downsample_layers = nn.ModuleList(
             [
                 Sample(
@@ -209,6 +214,7 @@ class UNET(nn.Module):
             ]
         )
 
+        # upsample layers
         self.upsample_layers = nn.ModuleList(
             [
                 Sample(
@@ -226,6 +232,7 @@ class UNET(nn.Module):
             ]
         )
 
+        # end
         self.end = ResNetBlock(1, 2 * channels[0], inChannels)
 
     def forward(self, x: Tensor, t: Tensor) -> Tensor:
@@ -233,7 +240,8 @@ class UNET(nn.Module):
         assert t.shape[0] == x.shape[0]
 
         time_emb = self.time_emb(t)
-        x = torch.cat([x, time_emb], dim=1)
+        x = self.conv_in(x) + time_emb # (b, c, h, w) + (1,1,h,w)
+
         skip_connections = [x]
 
         for block in self.downsample_layers:

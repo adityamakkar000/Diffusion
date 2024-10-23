@@ -2,4 +2,5 @@
 /venv/*
 *.ipynb
 *.pyc
-*.pt 
+*.pt
+/diffusers/*

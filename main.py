@@ -71,8 +71,10 @@ if args.load:
         checkpoint["loss"],
     )
 
+print("files loaded, setting up model ...\n\n")
+print("device", device)
 print("model params", sum(p.numel() for p in model.parameters()))
-print("starting training ...")
+print("starting training ... \n\n")
 
 start = time.time()
 for _ in range(max_steps):
@@ -95,6 +97,8 @@ for _ in range(max_steps):
         ) * F.mse_loss(predicted_noise, z, reduction="sum")
         loss.backward()
 
+
+        # delete intermediate variables
 
         if b < batch_size_accumlation_multiple - 1:
             del loss
@@ -139,19 +143,20 @@ for _ in range(max_steps):
             ) * F.mse_loss(predicted_noise, z, reduction="sum")
             loss_eval += loss.detach().item()
 
+            # delete intermediate variables
             del loss
             del x_0
             del x_t
             del predicted_noise
             del z
 
-          
+
 
         model.train()
 
 
         print(
-            f"Step {_}/{max_steps} | Batch {batch_percentage_complete:.2f}% | Train Loss: {loss_metric:.6f} | Eval Loss: {loss_eval:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete"
+            f"Step {_}/{max_steps} | Train Loss: {loss_metric:.6f} | Eval Loss: {loss_eval:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete"
         )
 
         torch.save(
