@@ -13,6 +13,14 @@ import argparse
 from config import ExperimentConfig
 
 
+# setup -load option from argparse
+
+argparser = argparse.ArgumentParser()
+
+argparser.add_argument("-load", action="store_true")
+
+args = argparser.parse_args()
+
 
 config = ExperimentConfig()
 
@@ -30,7 +38,7 @@ T = config.T
 
 diffusion_params = config.diffusion_params
 
-PATH = config.PATH
+PATH = "diff_" + config.PATH
 
 device = config.device
 train_data, test_data = get_dataloaders(size, batch_size_train, batch_size_test)
@@ -59,6 +67,20 @@ optimizer = torch.optim.Adam(model.parameters(), lr)
 
 print("files loaded, setting up model ...\n\n")
 print("device", device)
+lowest_loss = 100
+if args.load:
+  checkpoint = torch.load(PATH, weights_only=True, map_location=device)
+  model.load_state_dict(checkpoint["model_state_dict"])
+  optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+  print(
+      "loaded model from checkpoint at step",
+      checkpoint["step"],
+      "with loss",
+      checkpoint["loss"],
+  )
+  lowest_loss = checkpoint["loss"]
+
+
 print("model params", sum(p.numel() for p in model.parameters()))
 print("starting training ... \n\n")
 
@@ -144,14 +166,17 @@ for _ in range(max_steps):
             f"Step {_}/{max_steps} | Train Loss: {loss_metric:.6f} | Eval Loss: {loss_eval:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete"
         )
 
-        torch.save(
-            {
-                "step": _,
-                "model_state_dict": model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "loss": round(loss_metric, 6),
-            },
-            PATH,
-        )
+
+        if loss_eval < lowest_loss:
+          lowest_loss = loss_eval
+          torch.save(
+              {
+                  "step": _,
+                  "model_state_dict": model.state_dict(),
+                  "optimizer_state_dict": optimizer.state_dict(),
+                  "loss": round(loss_metric, 6),
+              },
+              PATH,
+          )
 
         start = time.time()
