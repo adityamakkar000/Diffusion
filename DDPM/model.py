@@ -96,15 +96,10 @@ class Attention(nn.Module):
         assert x.dim() == 4
 
         b, c, h, w = x.shape
-        # pass through projection
-        qkv = self.qkv(x)
-        qkv = qkv.view(b, 3 * self.n_heads, c // self.n_heads, h * w)
-        qkv = qkv.transpose(
-            -2, -1
-        )  # switch channels with time steps ( height and width)
+        qkv = self.qkv(x) # pass through projection
+        qkv = qkv.view(b, 3 * self.n_heads, c // self.n_heads, h * w).transpose(-2,-1)
         q, k, v = qkv.split(self.n_heads, dim=1)
-        k = k.transpose(2, 3)
-        attn = F.softmax((q @ k) / (self.emb**0.5), dim=-1)
+        attn = F.softmax((q @ k.tranpose(2,3)) / (self.emb**0.5), dim=-1)
         attn = self.dropout(attn)
         self.logits = attn @ v  # (b, hs, h * w, c // hs)
         self.logits = self.logits.transpose(1, 2).view(b, h * w, c)
