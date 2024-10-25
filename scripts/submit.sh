@@ -14,8 +14,12 @@
 #SBATCH --mail-user=aditya.makkar000@waterloo.ca
 #SBATCH --mail-type=ALL
 
+# activate env
+source activate pytorch_base
+echo $CONDA_DEFAULT_ENV
+
+
 nvidia-smi
 cd ~/PersonalProj/Diffusion
 echo "$PWD"
-source activate pytorch_base
 python3 main_diffusers.py -load
