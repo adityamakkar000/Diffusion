@@ -3,3 +3,4 @@
 *.ipynb
 *.pyc
 *.pt
+*.out 
