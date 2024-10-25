@@ -16,5 +16,6 @@
 
 nvidia-smi
 cd ~/PersonalProj/Diffusion
-conda activate pytorch_base
-python3 main_diffusers.py -load 
+echo "$PWD"
+source activate pytorch_base
+python3 main_diffusers.py -load
