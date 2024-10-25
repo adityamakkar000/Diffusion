@@ -32,21 +32,35 @@ echo cpu ${cpu_flag}
 echo memory ${mem_flag}
 echo time ${time_flag}
 
+# create submit.sh
+echo \#!/bin/bash >> submit.sh
+
 # config
-SBATCH --time={time_flag}
-SBATCH --mem={mem_flag}
-SBATCH --cpus-per-task={cpu_flag}
-SBATCH --gres=gpu:{gpu_flag}
+echo \#SBATCH --time="$time_flag" >> submit.sh
+echo \#SBATCH --mem="$mem_flag" >> submit.sh
+echo \#SBATCH --cpus-per-task="$cpu_flag"> submit.sh
+echo \#SBATCH --gres=gpu:"$gpu_flag" >> submit.sh
 
 # STD out
-SBATCH -o JOB%j.out
-SBATCH -e JOB%j-err.out
+
+echo \#SBATCH -o JOB%j.out >> submit.sh
+echo \#SBATCH -e JOB%j-err.out >> submit.sh
+
 
 # email
-SBATCH --mail-user=aditya.makkar000@waterloo.ca
-SBATCH --mail-type=ALL
 
-nvidia-smi
-cd ~/PersonalProj/Diffusion
-conda activate pytorch_base
-python3 main_diffusers.py -load 
+echo \#SBATCH --mail-user=adityamakkar000@gmail.com >> submit.sh
+echo \#SBATCH --mail-type=ALL >> submit.sh
+
+
+# activate env
+echo source activate pytorch_base >> submit.sh
+echo echo $CONDA_DEFAULT_ENV >> submit.sh
+
+echo nvidia-smi >> submit.sh
+echo cd ~/PersonalProj/Diffusion >> submit.sh
+echo echo "$PWD" >> submit.sh
+echo python3 main_diffusers.py -load >> submit.sh
+
+sbatch submit.sh
+rm submit.sh
