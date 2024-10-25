@@ -68,6 +68,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr)
 print("files loaded, setting up model ...\n\n")
 print("device", device)
 lowest_loss = 100
+_ = 0
 if args.load:
   checkpoint = torch.load(PATH, weights_only=True, map_location=device)
   model.load_state_dict(checkpoint["model_state_dict"])
@@ -79,14 +80,16 @@ if args.load:
       checkpoint["loss"],
   )
   lowest_loss = checkpoint["loss"]
+  _ = checkpoint["step"]
 
 
 print("model params", sum(p.numel() for p in model.parameters()))
 print("starting training ... \n\n")
 
 start = time.time()
-for _ in range(max_steps):
 
+while True:
+    
     optimizer.zero_grad()
     for b in range(batch_size_accumlation_multiple):
         data = train_data()
@@ -180,3 +183,5 @@ for _ in range(max_steps):
           )
 
         start = time.time()
+
+    _ += 1

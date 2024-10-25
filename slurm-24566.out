@@ -1,0 +1,16 @@
+gpu 1
+cpu 4
+memory 48G
+time 2:00:00
+/var/spool/slurm/d/job24566/slurm_script: line 36: SBATCH: command not found
+/var/spool/slurm/d/job24566/slurm_script: line 37: SBATCH: command not found
+/var/spool/slurm/d/job24566/slurm_script: line 38: SBATCH: command not found
+/var/spool/slurm/d/job24566/slurm_script: line 39: SBATCH: command not found
+/var/spool/slurm/d/job24566/slurm_script: line 42: SBATCH: command not found
+/var/spool/slurm/d/job24566/slurm_script: line 43: SBATCH: command not found
+/var/spool/slurm/d/job24566/slurm_script: line 46: SBATCH: command not found
+/var/spool/slurm/d/job24566/slurm_script: line 47: SBATCH: command not found
+No devices were found
+usage: conda [-h] [--no-plugins] [-V] COMMAND ...
+conda: error: argument COMMAND: invalid choice: 'activate' (choose from 'clean', 'compare', 'config', 'create', 'info', 'init', 'install', 'list', 'notices', 'package', 'remove', 'uninstall', 'rename', 'run', 'search', 'update', 'upgrade', 'build', 'convert', 'debug', 'develop', 'doctor', 'index', 'inspect', 'metapackage', 'render', 'skeleton', 'env', 'server', 'content-trust', 'token', 'verify', 'pack', 'repo')
+slurmstepd: error: *** JOB 24566 ON watgpu208 CANCELLED AT 2024-10-25T12:56:39 ***

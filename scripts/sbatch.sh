@@ -46,6 +46,7 @@ SBATCH -e JOB%j-err.out
 SBATCH --mail-user=aditya.makkar000@waterloo.ca
 SBATCH --mail-type=ALL
 
+nvidia-smi
 cd ~/PersonalProj/Diffusion
 conda activate pytorch_base
 python3 main_diffusers.py -load 

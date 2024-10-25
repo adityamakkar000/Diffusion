@@ -3,9 +3,9 @@ import torch
 
 @dataclass
 class ExperimentConfig:
-    batch_size_train: int = 4
+    batch_size_train: int = 64 
     batch_size_accumulation_multiple: int = 4
-    batch_size_test: int = 4
+    batch_size_test: int = 64 
     lr: float = 0.001
     max_steps: int = 1000
     scale: int = 4
