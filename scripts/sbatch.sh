@@ -63,4 +63,3 @@ echo echo "$PWD" >> submit.sh
 echo python3 main_diffusers.py -load >> submit.sh
 
 sbatch submit.sh
-rm submit.sh
