@@ -55,8 +55,25 @@ print("generating samples...")
 with torch.no_grad():
     model.eval()
 
-    x_T = torch.randn(1, 3, size[0], size[1]).to(device)
-    img = model.inference(x_T, alpha_bar_array)
+    x_t = torch.randn(1, 3, size[0], size[1]).to(device) # intitally set to normal distrubtion 
+
+    for t in range(999, 0, -1):
+        mean = model(x_t)['sample']
+        alpha_bar = alpha_bar_array[t]
+        alpha_bar_sub1 = alpha_bar_array[t - 1]
+        alpha_current = alpha_bar / alpha_bar_sub1
+
+        x_t = torch.sqrt(1 / alpha_bar) * (
+            x
+            - ((1 - alpha_current) / (torch.sqrt(1 - alpha_bar))) * mean
+            )
+        x_t = torch.clip(x, -1, 1)
+
+        if t > 1:
+            sigma = torch.randn_like(x_t)
+            x_t += sigma
+
+    img = x_t
 
     img_np = img.squeeze().permute(1, 2, 0).cpu().numpy()
     img_np = (img_np + 1) / 2 * 255
