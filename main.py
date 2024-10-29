@@ -90,6 +90,8 @@ for _ in range(max_steps):
         x_t = torch.sqrt(alpha_bar) * x_0 + torch.sqrt(1 - alpha_bar) * z
         x_t = x_t.to(device)
 
+
+
         predicted_noise = model(x_t, t)
 
         loss = (
