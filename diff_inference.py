@@ -71,9 +71,10 @@ with torch.no_grad():
         x_t = torch.clip(x_t, -1, 1)
 
         if t > 1:
-            sigma = torch.randn_like(x_t)
+            z = torch.randn_like(x_t)
 
-            x_t += torch.sqrt(1 - alpha_current)* sigma
+            sigma  =  (1 - alpha_bar_sub1)/ (1 - alpha_bar) * torch.sqrt( 1- alpha_current )
+            x_t = sigma * z
 
     img = x_t
 
