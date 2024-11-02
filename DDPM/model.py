@@ -275,7 +275,8 @@ class UNET(nn.Module):
                 x = torch.clip(x, -1, 1)
                 if t > 1:
                     z = torch.randn_like(x)
-                    x = x + torch.sqrt(1 - alpha_current) * z
+                    sigma =  (1 - alpha_bar_sub1) / (1 - alpha_bar) * torch.sqrt(1 - alpha_current)
+                    x = x + sigma * z
 
                 if t % 100 == 0:
                     img_np = x.squeeze().permute(1, 2, 0).cpu().numpy()
