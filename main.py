@@ -71,6 +71,16 @@ def main(cfg: DictConfig) -> None:
         return alpha_bar
 
 
+    def get_training_batch():
+        x_0 = test_data()
+        x_0 = x_0.to(device)
+        t = torch.randint(1, T, (batch_size_test,)).int().to(device)
+        alpha_bar = get_alpha(t)
+        z = torch.randn_like(x_0)
+        x_t = torch.sqrt(alpha_bar) * x_0 + torch.sqrt(1 - alpha_bar) * z
+        x_t = x_t.to(device)
+
+        return x_t, t
 
     if cfg.model == 'self':
         model = UNET(**diffusion_params).to(device)
@@ -105,15 +115,8 @@ def main(cfg: DictConfig) -> None:
         _ += 1
         optimizer.zero_grad()
         for b in range(batch_size_accumlation_multiple):
-            data = train_data()
-            x_0 = data.to(device)
 
-            t = torch.randint(1, T, (batch_size_train,)).int().to(device)
-            alpha_bar = get_alpha(t)
-            z = torch.randn_like(x_0)
-            x_t = torch.sqrt(alpha_bar) * x_0 + torch.sqrt(1 - alpha_bar) * z
-            x_t = x_t.to(device)
-
+            x_t, t = get_training_batch()
             predicted_noise = model(x_t, t)
 
             if cfg.model == 'HF':
@@ -155,14 +158,8 @@ def main(cfg: DictConfig) -> None:
                 model.eval()
                 loss_eval = 0
                 for b in range(batch_size_accumlation_multiple):
-                    x_0 = test_data()
-                    x_0 = x_0.to(device)
-                    t = torch.randint(1, T, (batch_size_test,)).int().to(device)
-                    alpha_bar = get_alpha(t)
-                    z = torch.randn_like(x_0)
-                    x_t = torch.sqrt(alpha_bar) * x_0 + torch.sqrt(1 - alpha_bar) * z
-                    x_t = x_t.to(device)
 
+                    x_t, t = get_training_batch()
                     predicted_noise = model(x_t, t)
                     if cfg.model == 'HF':
                         predicted_noise = predicted_noise['sample']
