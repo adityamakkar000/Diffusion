@@ -7,20 +7,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from typing import List, Tuple, Optional, Union
-from dataclass import dataclass
+from dataclasses import dataclass, field
 
-
-@dataclass
-class TrainingConfig:
-    timeStep: int = 1000
-    originalSize: Tuple[int, int] = (64, 64)
-    inChannels: int = 3
-    channels: List[int] = field(default_factory=lambda: [32, 64, 128])
-    strides: List[int] = field(default_factory=lambda: [2, 2])
-    n_heads: List[int] = field(default_factory=lambda: [1])
-    resNetBlocks: List[int] = field(default_factory=lambda: [2, 2, 2])
-    attn: List[bool] = field(default_factory=lambda: [True, False, False])
-    dropout: List[float] = field(default_factory=lambda: [0.2])
 
 
 class ResNetBlock(nn.Module):
@@ -113,7 +101,7 @@ class Attention(nn.Module):
         qkv = self.qkv(x) # pass through projection
         qkv = qkv.view(b, 3 * self.n_heads, c // self.n_heads, h * w).transpose(-2,-1)
         q, k, v = qkv.split(self.n_heads, dim=1)
-        attn = F.softmax((q @ k.tranpose(2,3)) / (self.emb**0.5), dim=-1)
+        attn = F.softmax((q @ k.transpose(2,3)) / (self.emb**0.5), dim=-1)
         attn = self.dropout(attn)
         self.logits = attn @ v  # (b, hs, h * w, c // hs)
         self.logits = self.logits.transpose(1, 2).view(b, h * w, c)

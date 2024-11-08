@@ -1,44 +1,56 @@
 import torch
 import torch.nn.functional as F
 from torch import Tensor
-
 from setupDataset import get_dataloaders
 import matplotlib.pyplot as plt
-from DDPM.model import UNET
-
+from models.DDPM.model import UNET
+from models.hf_diff.diff import createHFDiffusion
 import time
-from itertools import cycle
-
+import os
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
 
-
-
-@hydra.main(version_base=None)
+@hydra.main(version_base=None, config_path="./configs")
 def main(cfg: DictConfig) -> None:
+
+    # check if cfg has load
+    print("loading config ...")
+    if 'load' in cfg:
+        load = True
+        path = f"runs/{cfg.path}"
+        assert os.path.exists(path), "path does not exist"
+        cfg = OmegaConf.load(os.path.join(path, "config.yaml"))
+
+    else:
+        load = False
+        path = f"runs/{cfg.save_dir}"
+        if not os.path.exists(path):
+            os.makedirs(path)
+        OmegaConf.save(config=cfg, f=os.path.join(path, "config.yaml"))
+
+
     print(OmegaConf.to_yaml(cfg))
 
-    
-    config = ExperimentConfig()
+    batch_size_train = cfg.training.batch_size_train
+    batch_size_accumlation_multiple = cfg.training.batch_size_accumulation_multiple
+    batch_size_test = cfg.training.batch_size_test
+    lr = cfg.training.lr
+    max_steps = cfg.training.max_steps
+    scale = cfg.training.scale
+    size = cfg.training.size
 
-    batch_size_train = config.batch_size_train
-    batch_size_accumlation_multiple = config.batch_size_accumulation_multiple
-    batch_size_test = config.batch_size_test
-    lr = config.lr
-    max_steps = config.max_steps
-    scale = config.scale
-    size = config.size
+    B_1 = cfg.training.B_1
+    B_T = cfg.training.B_T
+    T = cfg.training.T
 
-    B_1 = config.B_1
-    B_T = config.B_T
-    T = config.T
 
-    diffusion_params = config.diffusion_params
+    diffusion_params = cfg.model_config
+    if torch.cuda.is_available():
+        device = "cuda"
+    else:
+        device = "mps" if torch.backends.mps.is_available() else "cpu"
 
-    PATH = config.PATH
-
-    device = config.device
     train_data, test_data = get_dataloaders(size, batch_size_train, batch_size_test)
 
     # linear based noise scheduler
@@ -59,13 +71,22 @@ def main(cfg: DictConfig) -> None:
         return alpha_bar
 
 
-    model = UNET(**diffusion_params).to(device)
+
+    if cfg.model == 'self':
+        model = UNET(**diffusion_params).to(device)
+    elif cfg.model == 'HF':
+        model = createHFDiffusion(diffusion_params).to(device)
+    else:
+        raise NotImplementedError("model not implemented")
+
     optimizer = torch.optim.Adam(model.parameters(), lr)
 
-    if args.load:
-        checkpoint = torch.load(PATH, weights_only=True, map_location=device)
+    lowest_loss = 100000
+    if load:
+        checkpoint = torch.load(f"{path}/model.pt", weights_only=True, map_location=device)
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        lowest_loss = checkpoint["loss"]
         print(
             "loaded model from checkpoint at step",
             checkpoint["step"],
@@ -73,14 +94,15 @@ def main(cfg: DictConfig) -> None:
             checkpoint["loss"],
         )
 
-    print("files loaded, setting up model ...\n\n")
+    print("Files loaded, setting up model ...\n\n")
     print("device", device)
     print("model params", sum(p.numel() for p in model.parameters()))
     print("starting training ... \n\n")
 
     start = time.time()
-    for _ in range(max_steps):
-
+    _ = 0
+    while True:
+        _ += 1
         optimizer.zero_grad()
         for b in range(batch_size_accumlation_multiple):
             data = train_data()
@@ -92,9 +114,10 @@ def main(cfg: DictConfig) -> None:
             x_t = torch.sqrt(alpha_bar) * x_0 + torch.sqrt(1 - alpha_bar) * z
             x_t = x_t.to(device)
 
-
-
             predicted_noise = model(x_t, t)
+
+            if cfg.model == 'HF':
+                predicted_noise = predicted_noise['sample']
 
             loss = (
                 1 / (T * batch_size_accumlation_multiple * batch_size_train)
@@ -129,48 +152,57 @@ def main(cfg: DictConfig) -> None:
             batch_percentage_complete = 100.0 * (batch_idx) / len(train_data)
 
             with torch.no_grad():
-            model.eval()
-            loss_eval = 0
-            for b in range(batch_size_accumlation_multiple):
-                x_0 = test_data()
-                x_0 = x_0.to(device)
-                t = torch.randint(1, T, (batch_size_test,)).int().to(device)
-                alpha_bar = get_alpha(t)
-                z = torch.randn_like(x_0)
-                x_t = torch.sqrt(alpha_bar) * x_0 + torch.sqrt(1 - alpha_bar) * z
-                x_t = x_t.to(device)
+                model.eval()
+                loss_eval = 0
+                for b in range(batch_size_accumlation_multiple):
+                    x_0 = test_data()
+                    x_0 = x_0.to(device)
+                    t = torch.randint(1, T, (batch_size_test,)).int().to(device)
+                    alpha_bar = get_alpha(t)
+                    z = torch.randn_like(x_0)
+                    x_t = torch.sqrt(alpha_bar) * x_0 + torch.sqrt(1 - alpha_bar) * z
+                    x_t = x_t.to(device)
 
-                predicted_noise = model(x_t, t)
+                    predicted_noise = model(x_t, t)
+                    if cfg.model == 'HF':
+                        predicted_noise = predicted_noise['sample']
 
-                loss = (
-                    1 / (T * batch_size_test * batch_size_accumlation_multiple)
-                ) * F.mse_loss(predicted_noise, z, reduction="sum")
-                loss_eval += loss.detach().item()
+                    loss = (
+                        1 / (T * batch_size_test * batch_size_accumlation_multiple)
+                    ) * F.mse_loss(predicted_noise, z, reduction="sum")
+                    loss_eval += loss.detach().item()
 
-                # delete intermediate variables
-                del loss
-                del x_0
-                del x_t
-                del predicted_noise
-                del z
-
-
+                    # delete intermediate variables
+                    del loss
+                    del x_0
+                    del x_t
+                    del predicted_noise
+                    del z
 
             model.train()
 
+            saved = False
+            if loss_eval < lowest_loss:
+                lowest_loss = loss_eval
+                torch.save(
+                    {
+                        "step": _,
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optimizer.state_dict(),
+                        "loss": round(loss_metric, 6),
+                    },
+                    f"{path}/model.pt",
+                )
+                saved = True
 
-            print(
-                f"Step {_}/{max_steps} | Train Loss: {loss_metric:.6f} | Eval Loss: {loss_eval:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete"
-            )
+            metric_string =  f"Step {_}/{max_steps} | Train Loss: {loss_metric:.6f} | Eval Loss: {loss_eval:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete"
+            if saved:
+                metric_string += " | saved model"
 
-            torch.save(
-                {
-                    "step": _,
-                    "model_state_dict": model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "loss": round(loss_metric, 6),
-                },
-                PATH,
-            )
+            print(metric_string)
 
             start = time.time()
+
+
+if __name__ == "__main__":
+    main()

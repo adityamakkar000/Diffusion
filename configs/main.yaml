@@ -1,0 +1,7 @@
+defaults:
+  - training: config
+  - model_config: self
+  - _self_
+
+model: self
+save_dir: /path/to/save_dir

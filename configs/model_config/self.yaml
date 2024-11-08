@@ -1,0 +1,25 @@
+
+timeStep: 1000
+originalSize:
+  - 64
+  - 64
+inChannels: 3
+channels:
+  - 32
+  - 64
+  - 128
+strides:
+  - 2
+  - 2
+n_heads:
+  - 1
+resNetBlocks:
+  - 2
+  - 2
+  - 2
+attn:
+  - true
+  - false
+  - false
+dropout:
+  - 0.2

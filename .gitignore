@@ -3,4 +3,6 @@
 *.ipynb
 *.pyc
 *.pt
-*.out 
+*.out
+/outputs/*
+/runs/*

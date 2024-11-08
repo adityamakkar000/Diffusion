@@ -1,0 +1,16 @@
+image_size: 64  # the generated image resolution
+in_channels: 3  # number of input channels
+out_channels: 3
+layers_per_block: 2
+block_out_channels:
+  - 32
+  - 64
+  - 128
+down_block_types:
+  - AttnDownBlock2D
+  - DownBlock2D
+  - DownBlock2D
+up_block_types:
+  - UpBlock2D
+  - UpBlock2D
+  - AttnUpBlock2D
