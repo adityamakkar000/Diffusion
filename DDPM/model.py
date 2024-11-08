@@ -7,6 +7,20 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from typing import List, Tuple, Optional, Union
+from dataclass import dataclass
+
+
+@dataclass
+class TrainingConfig:
+    timeStep: int = 1000
+    originalSize: Tuple[int, int] = (64, 64)
+    inChannels: int = 3
+    channels: List[int] = field(default_factory=lambda: [32, 64, 128])
+    strides: List[int] = field(default_factory=lambda: [2, 2])
+    n_heads: List[int] = field(default_factory=lambda: [1])
+    resNetBlocks: List[int] = field(default_factory=lambda: [2, 2, 2])
+    attn: List[bool] = field(default_factory=lambda: [True, False, False])
+    dropout: List[float] = field(default_factory=lambda: [0.2])
 
 
 class ResNetBlock(nn.Module):
