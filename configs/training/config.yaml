@@ -8,3 +8,4 @@ size: [64, 64]
 B_1: 0.0001
 B_T: 0.02
 T: 1000
+checkpoint_interval: 10

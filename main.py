@@ -14,8 +14,6 @@ from omegaconf import DictConfig, OmegaConf
 @hydra.main(version_base=None, config_path="./configs")
 def main(cfg: DictConfig) -> None:
 
-    # check if cfg has load
-    print("loading config ...")
     if 'load' in cfg:
         load = True
         path = f"runs/{cfg.path}"
@@ -44,6 +42,8 @@ def main(cfg: DictConfig) -> None:
     B_T = cfg.training.B_T
     T = cfg.training.T
 
+    checkpoint_interval = cfg.training.checkpoint_interval
+
 
     diffusion_params = cfg.model_config
     if torch.cuda.is_available():
@@ -60,7 +60,6 @@ def main(cfg: DictConfig) -> None:
     for i in range(1, T):
         alpha_bar_array[i] = alpha_bar_array[i - 1] * (1 - beta_array[i])
 
-
     def get_alpha(t: Tensor) -> float:
         alpha_bar = alpha_bar_array[t].view(-1, 1, 1, 1)
         assert (
@@ -69,7 +68,6 @@ def main(cfg: DictConfig) -> None:
             and alpha_bar.shape[1] == alpha_bar.shape[2] == alpha_bar.shape[3]
         )
         return alpha_bar
-
 
     def get_training_batch():
         x_0 = test_data()
@@ -80,7 +78,7 @@ def main(cfg: DictConfig) -> None:
         x_t = torch.sqrt(alpha_bar) * x_0 + torch.sqrt(1 - alpha_bar) * z
         x_t = x_t.to(device)
 
-        return x_t, t
+        return x_t, t,z
 
     if cfg.model == 'self':
         model = UNET(**diffusion_params).to(device)
@@ -116,7 +114,7 @@ def main(cfg: DictConfig) -> None:
         optimizer.zero_grad()
         for b in range(batch_size_accumlation_multiple):
 
-            x_t, t = get_training_batch()
+            x_t, t, z= get_training_batch()
             predicted_noise = model(x_t, t)
 
             if cfg.model == 'HF':
@@ -128,18 +126,9 @@ def main(cfg: DictConfig) -> None:
             loss.backward()
 
 
-            # delete intermediate variables
-
-            if b < batch_size_accumlation_multiple - 1:
-                del loss
-            del x_0
-            del x_t
-            del predicted_noise
-            del z
-
         optimizer.step()
 
-        if _ % 10 == 0:
+        if _ % checkpoint_interval == 0:
 
             loss_metric = loss.detach().item() * batch_size_accumlation_multiple
             del loss
@@ -159,7 +148,7 @@ def main(cfg: DictConfig) -> None:
                 loss_eval = 0
                 for b in range(batch_size_accumlation_multiple):
 
-                    x_t, t = get_training_batch()
+                    x_t, t, z= get_training_batch()
                     predicted_noise = model(x_t, t)
                     if cfg.model == 'HF':
                         predicted_noise = predicted_noise['sample']
@@ -169,12 +158,7 @@ def main(cfg: DictConfig) -> None:
                     ) * F.mse_loss(predicted_noise, z, reduction="sum")
                     loss_eval += loss.detach().item()
 
-                    # delete intermediate variables
-                    del loss
-                    del x_0
-                    del x_t
-                    del predicted_noise
-                    del z
+
 
             model.train()
 

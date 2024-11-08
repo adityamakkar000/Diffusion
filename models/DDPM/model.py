@@ -258,38 +258,7 @@ class UNET(nn.Module):
 
         return x
 
-    def inference(self, x: Tensor, alpha_bar_array: Tensor) -> Tensor:
-
-        assert x.dim() == 4 and x.shape[0] == 1
-
-        with torch.no_grad():
-            self.eval()
-            for t in range(self.T - 1, 0, -1):
-                alpha_bar = alpha_bar_array[t]
-                alpha_bar_sub1 = alpha_bar_array[t - 1]
-                alpha_current = alpha_bar / alpha_bar_sub1
-
-                noise_prediction = self.forward(x, torch.Tensor([t]).int().to(x.device))
-                x = torch.sqrt(1 / alpha_bar) * (
-                    x
-                    - ((1 - alpha_current) / (torch.sqrt(1 - alpha_bar))) * noise_prediction
-                )
-                x = torch.clip(x, -1, 1)
-                if t > 1:
-                    z = torch.randn_like(x)
-                    sigma =  (1 - alpha_bar_sub1) / (1 - alpha_bar) * torch.sqrt(1 - alpha_current)
-                    x = x + sigma * z
-
-                if t % 100 == 0:
-                    img_np = x.squeeze().permute(1, 2, 0).cpu().numpy()
-                    img_np = (img_np + 1) / 2 * 255
-                    img_np = img_np.astype(np.uint8)
-                    plt.imsave(f'samples/generated_image_{t}.png', img_np)
-                    print(f"saved image at step {t}")
-
-        self.train()
-
-        return x
+   
 
 
 if __name__ == "__main__":
