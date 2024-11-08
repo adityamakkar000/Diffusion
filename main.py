@@ -19,7 +19,6 @@ def main(cfg: DictConfig) -> None:
         path = f"runs/{cfg.path}"
         assert os.path.exists(path), "path does not exist"
         cfg = OmegaConf.load(os.path.join(path, "config.yaml"))
-
     else:
         load = False
         path = f"runs/{cfg.save_dir}"
@@ -104,7 +103,7 @@ def main(cfg: DictConfig) -> None:
             checkpoint["loss"],
         )
 
-    def training_step(split: "str", model) -> None:
+    def training_step(split: "str", model) -> Tensor:
 
         if split == "train":
             optimizer.zero_grad()
@@ -125,11 +124,13 @@ def main(cfg: DictConfig) -> None:
 
             if split == "train":
                 loss.backward()
+
             if split == "test":
                 loss_final += loss.detach().item()
 
         if split == "train":
             optimizer.step()
+            return loss.detach().item() * batch_size_accumlation_multiple
         if split == "test":
             return loss_final
 
@@ -144,13 +145,11 @@ def main(cfg: DictConfig) -> None:
         _ += 1
         optimizer.zero_grad()
         model.train()
-        training_step("train", model)
+        loss = training_step("train", model)
         optimizer.step()
 
         if _ % checkpoint_interval == 0:
 
-            loss_metric = loss.detach().item() * batch_size_accumlation_multiple
-            del loss
 
             if device == "cuda":
                 torch.cuda.synchronize()
@@ -174,13 +173,13 @@ def main(cfg: DictConfig) -> None:
                         "step": _,
                         "model_state_dict": model.state_dict(),
                         "optimizer_state_dict": optimizer.state_dict(),
-                        "loss": round(loss_metric, 6),
+                        "loss": round(loss_eval, 6),
                     },
                     f"{path}/model.pt",
                 )
                 saved = True
 
-            metric_string = f"Step {_}/{max_steps} | Train Loss: {loss_metric:.6f} | Eval Loss: {loss_eval:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete"
+            metric_string = f"Step {_} | Train Loss: {loss:.6f} | Eval Loss: {loss_eval:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete"
             if saved:
                 metric_string += " | saved model"
 
