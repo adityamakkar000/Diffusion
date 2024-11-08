@@ -2,19 +2,19 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 from setupDataset import get_dataloaders
-import matplotlib.pyplot as plt
 from models.DDPM.model import UNET
 from models.hf_diff.diff import createHFDiffusion
 import time
 import os
 import hydra
 from omegaconf import DictConfig, OmegaConf
+from typing import Tuple
 
 
 @hydra.main(version_base=None, config_path="./configs")
 def main(cfg: DictConfig) -> None:
 
-    if 'load' in cfg:
+    if "load" in cfg:
         load = True
         path = f"runs/{cfg.path}"
         assert os.path.exists(path), "path does not exist"
@@ -26,7 +26,6 @@ def main(cfg: DictConfig) -> None:
         if not os.path.exists(path):
             os.makedirs(path)
         OmegaConf.save(config=cfg, f=os.path.join(path, "config.yaml"))
-
 
     print(OmegaConf.to_yaml(cfg))
 
@@ -44,7 +43,6 @@ def main(cfg: DictConfig) -> None:
 
     checkpoint_interval = cfg.training.checkpoint_interval
 
-
     diffusion_params = cfg.model_config
     if torch.cuda.is_available():
         device = "cuda"
@@ -52,6 +50,8 @@ def main(cfg: DictConfig) -> None:
         device = "mps" if torch.backends.mps.is_available() else "cpu"
 
     train_data, test_data = get_dataloaders(size, batch_size_train, batch_size_test)
+
+    dataset = {"train": train_data, "test": test_data}
 
     # linear based noise scheduler
     beta_array = torch.linspace(B_1, B_T, T)
@@ -69,8 +69,8 @@ def main(cfg: DictConfig) -> None:
         )
         return alpha_bar
 
-    def get_training_batch():
-        x_0 = test_data()
+    def get_training_batch(split: "str" = "train") -> Tuple[Tensor, Tensor, Tensor]:
+        x_0 = dataset[split]()
         x_0 = x_0.to(device)
         t = torch.randint(1, T, (batch_size_test,)).int().to(device)
         alpha_bar = get_alpha(t)
@@ -78,11 +78,11 @@ def main(cfg: DictConfig) -> None:
         x_t = torch.sqrt(alpha_bar) * x_0 + torch.sqrt(1 - alpha_bar) * z
         x_t = x_t.to(device)
 
-        return x_t, t,z
+        return x_t, t, z
 
-    if cfg.model == 'self':
+    if cfg.model == "self":
         model = UNET(**diffusion_params).to(device)
-    elif cfg.model == 'HF':
+    elif cfg.model == "HF":
         model = createHFDiffusion(diffusion_params).to(device)
     else:
         raise NotImplementedError("model not implemented")
@@ -91,7 +91,9 @@ def main(cfg: DictConfig) -> None:
 
     lowest_loss = 100000
     if load:
-        checkpoint = torch.load(f"{path}/model.pt", weights_only=True, map_location=device)
+        checkpoint = torch.load(
+            f"{path}/model.pt", weights_only=True, map_location=device
+        )
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         lowest_loss = checkpoint["loss"]
@@ -101,6 +103,35 @@ def main(cfg: DictConfig) -> None:
             "with loss",
             checkpoint["loss"],
         )
+
+    def training_step(split: "str", model) -> None:
+
+        if split == "train":
+            optimizer.zero_grad()
+        if split == "test":
+            loss_final = 0
+
+        for b in range(batch_size_accumlation_multiple):
+
+            x_t, t, z = get_training_batch(split)
+            predicted_noise = model(x_t, t)
+
+            if cfg.model == "HF":
+                predicted_noise = predicted_noise["sample"]
+
+            loss = (
+                1 / (T * batch_size_accumlation_multiple * batch_size_train)
+            ) * F.mse_loss(predicted_noise, z, reduction="sum")
+
+            if split == "train":
+                loss.backward()
+            if split == "test":
+                loss_final += loss.detach().item()
+
+        if split == "train":
+            optimizer.step()
+        if split == "test":
+            return loss_final
 
     print("Files loaded, setting up model ...\n\n")
     print("device", device)
@@ -112,20 +143,8 @@ def main(cfg: DictConfig) -> None:
     while True:
         _ += 1
         optimizer.zero_grad()
-        for b in range(batch_size_accumlation_multiple):
-
-            x_t, t, z= get_training_batch()
-            predicted_noise = model(x_t, t)
-
-            if cfg.model == 'HF':
-                predicted_noise = predicted_noise['sample']
-
-            loss = (
-                1 / (T * batch_size_accumlation_multiple * batch_size_train)
-            ) * F.mse_loss(predicted_noise, z, reduction="sum")
-            loss.backward()
-
-
+        model.train()
+        training_step("train", model)
         optimizer.step()
 
         if _ % checkpoint_interval == 0:
@@ -145,22 +164,7 @@ def main(cfg: DictConfig) -> None:
 
             with torch.no_grad():
                 model.eval()
-                loss_eval = 0
-                for b in range(batch_size_accumlation_multiple):
-
-                    x_t, t, z= get_training_batch()
-                    predicted_noise = model(x_t, t)
-                    if cfg.model == 'HF':
-                        predicted_noise = predicted_noise['sample']
-
-                    loss = (
-                        1 / (T * batch_size_test * batch_size_accumlation_multiple)
-                    ) * F.mse_loss(predicted_noise, z, reduction="sum")
-                    loss_eval += loss.detach().item()
-
-
-
-            model.train()
+                loss_eval = training_step("test", model)
 
             saved = False
             if loss_eval < lowest_loss:
@@ -176,7 +180,7 @@ def main(cfg: DictConfig) -> None:
                 )
                 saved = True
 
-            metric_string =  f"Step {_}/{max_steps} | Train Loss: {loss_metric:.6f} | Eval Loss: {loss_eval:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete"
+            metric_string = f"Step {_}/{max_steps} | Train Loss: {loss_metric:.6f} | Eval Loss: {loss_eval:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete"
             if saved:
                 metric_string += " | saved model"
 
