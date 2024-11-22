@@ -58,8 +58,8 @@ def main(cfg: DictConfig) -> None:
     alpha_bar_array[0] = 1 - beta_array[0]
     for i in range(1, T):
         alpha_bar_array[i] = alpha_bar_array[i - 1] * (1 - beta_array[i])
-
-    def get_alpha(t: Tensor) -> float:
+   
+        def get_alpha(t: Tensor) -> float:
         alpha_bar = alpha_bar_array[t].view(-1, 1, 1, 1)
         assert (
             alpha_bar.dim() == 4
