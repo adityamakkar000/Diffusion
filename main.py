@@ -9,6 +9,7 @@ import os
 import hydra
 from omegaconf import DictConfig, OmegaConf
 from typing import Tuple
+from tqdm import tqdm
 
 
 @hydra.main(version_base=None, config_path="./configs")
@@ -58,14 +59,16 @@ def main(cfg: DictConfig) -> None:
     alpha_bar_array[0] = 1 - beta_array[0]
     for i in range(1, T):
         alpha_bar_array[i] = alpha_bar_array[i - 1] * (1 - beta_array[i])
-   
-        def get_alpha(t: Tensor) -> float:
+
+    def get_alpha(t: Tensor) -> float:
         alpha_bar = alpha_bar_array[t].view(-1, 1, 1, 1)
+
         assert (
             alpha_bar.dim() == 4
             and alpha_bar.shape[0] == t.shape[0]
             and alpha_bar.shape[1] == alpha_bar.shape[2] == alpha_bar.shape[3]
         )
+
         return alpha_bar
 
     def get_training_batch(split: "str" = "train") -> Tuple[Tensor, Tensor, Tensor]:
@@ -141,8 +144,7 @@ def main(cfg: DictConfig) -> None:
 
     start = time.time()
     _ = 0
-    while True:
-        _ += 1
+    for _ in tqdm(range(max_steps), desc="Training"):
         optimizer.zero_grad()
         model.train()
         loss = training_step("train", model)

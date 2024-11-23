@@ -9,6 +9,7 @@ import numpy as np
 import os
 import hydra
 from omegaconf import DictConfig, OmegaConf
+from tqdm import tqdm
 
 
 @hydra.main(version_base=None, config_path="./configs")
@@ -17,7 +18,7 @@ def main(cfg: DictConfig) -> None:
     if 'load' in cfg:
         load = True
         path = f"runs/{cfg.path}"
-        assert os.path.exists(path), "path does not exist"
+        assert os.path.exists(path), f"path, {path}, does not exist"
         cfg = OmegaConf.load(os.path.join(path, "config.yaml"))
 
     else:
@@ -48,10 +49,9 @@ def main(cfg: DictConfig) -> None:
         alpha_bar_array[i] = alpha_bar_array[i - 1] * (1 - beta_array[i])
 
     def save_image(x, path):
-        img_np = x.squeeze().permute(1, 2, 0).cpu().numpy()
-        img_np = (img_np + 1) / 2 * 255
-        img_np = img_np.astype(np.uint8)
-        plt.imsave(path, img_np)
+        img = (x + 1.0) * 255.0 / 2.0
+        img = img.type(torch.uint8)
+        plt.imsave(path, img.permute(1,2,0).cpu().detach().numpy(), format="png")
 
 
     if cfg.model == 'self':
@@ -84,7 +84,7 @@ def main(cfg: DictConfig) -> None:
 
         x_t = torch.randn(1, 3, size[0], size[1]).to(device) # intitally set to normal distrubtion
 
-        for t in range(999, 0, -1):
+        for t in tqdm(range(999, 0, -1), desc="Generating images"):
 
             mean = model(x_t, torch.Tensor([t]).to(device).long())
             if cfg.model == 'HF':
@@ -95,11 +95,10 @@ def main(cfg: DictConfig) -> None:
             alpha_current = alpha_bar / alpha_bar_sub1
 
             x_t = torch.sqrt(1 / alpha_bar) * (
-                x_t
-                - ((1 - alpha_current) / (torch.sqrt(1 - alpha_bar))) * mean
-                )
-            x_t = torch.clip(x_t, -1, 1)
-
+            x_t
+            - ((1 - alpha_current) / (torch.sqrt(1 - alpha_bar))) * mean
+            )
+    #            x_t = torch.clip(x_t, -1, 1)
             if t > 1:
                 z = torch.randn_like(x_t)
 
@@ -107,10 +106,9 @@ def main(cfg: DictConfig) -> None:
                 x_t = sigma * z
 
             if t % 100 == 0:
-                save_image(x_t, f"{path}/samples/{t}.png")
-                print(f"saved image at step {t}")
+                save_image(x_t[0], f"{path}/samples/{t}.png")
 
-        save_image(x_t, f"{path}/generated_image.png")
+        save_image(x_t[0], f"{path}/generated_image.png")
         print(f"saved image at {path}/generated_image.png")
 
 if __name__ == "__main__":
