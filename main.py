@@ -15,9 +15,9 @@ from tqdm import tqdm
 @hydra.main(version_base=None, config_path="./configs")
 def main(cfg: DictConfig) -> None:
 
-    if "load" in cfg:
+    if "path" in cfg and cfg.path is not None:
         load = True
-        path = f"runs/{cfg.path}"
+        path = f"./runs/{cfg.path}"
         assert os.path.exists(path), "path does not exist"
 
         cfg = OmegaConf.load(os.path.join(path, "config.yaml"))
@@ -56,32 +56,16 @@ def main(cfg: DictConfig) -> None:
     batch_size = {"train": batch_size_train, "test": batch_size_test }
 
     # linear based noise scheduler
-    beta_array = torch.linspace(B_1, B_T, T)
-    alpha_bar_array = torch.zeros(T).to(device)
-    alpha_bar_array[0] = 1 - beta_array[0]
-
-    for i in range(1, T):
-        alpha_bar_array[i] = alpha_bar_array[i - 1] * (1 - beta_array[i])
-
-    def get_alpha(t: Tensor) -> float:
-        alpha_bar = alpha_bar_array[t].view(-1, 1, 1, 1)
-
-        assert (
-            alpha_bar.dim() == 4
-            and alpha_bar.shape[0] == t.shape[0]
-            and alpha_bar.shape[1] == alpha_bar.shape[2] == alpha_bar.shape[3]
-        )
-
-        return alpha_bar
+    beta_array = torch.linspace(B_1, B_T, T, dtype=torch.float32).to(device)
+    alpha_array  = 1.0 - beta_array
+    alpha_bar_array = torch.cumprod(alpha_array, dim=0, dtype=torch.float32)
 
     def get_training_batch(split: "str" = "train") -> Tuple[Tensor, Tensor, Tensor]:
-        x_0 = dataset[split]()
-        x_0 = x_0.to(device)
+        x_0 = dataset[split]().to(device)
         t = torch.randint(1, T, (batch_size[split],)).int().to(device)
-        alpha_bar = get_alpha(t)
+        alpha_bar = alpha_bar_array[t].view(-1, 1, 1, 1)
         z = torch.randn_like(x_0)
-        x_t = torch.sqrt(alpha_bar) * x_0 + torch.sqrt(1 - alpha_bar) * z
-        x_t = x_t.to(device)
+        x_t = (torch.sqrt(alpha_bar) * x_0 + torch.sqrt(1 - alpha_bar) * z).to(device)
 
         return x_t, t, z
 
@@ -97,7 +81,7 @@ def main(cfg: DictConfig) -> None:
     lowest_loss = 100000
     if load:
         checkpoint = torch.load(
-            f"{path}/model.pt", weights_only=True, map_location=device
+            f"./runs/{path}/model.pt", weights_only=True, map_location=device
         )
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])

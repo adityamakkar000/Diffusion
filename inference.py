@@ -1,7 +1,5 @@
 import torch
 import torch.nn.functional as F
-from torch import Tensor
-from setupDataset import get_dataloaders
 import matplotlib.pyplot as plt
 from models.DDPM.model import UNET
 from models.hf_diff.diff import createHFDiffusion
@@ -15,9 +13,8 @@ from tqdm import tqdm
 @hydra.main(version_base=None, config_path="./configs")
 def main(cfg: DictConfig) -> None:
 
-    if 'load' in cfg:
-        load = True
-        path = f"runs/{cfg.path}"
+    if 'path' in cfg and cfg.path is not None:
+        path = f"./runs/{cfg.path}"
         assert os.path.exists(path), f"path, {path}, does not exist"
         cfg = OmegaConf.load(os.path.join(path, "config.yaml"))
 
@@ -42,11 +39,10 @@ def main(cfg: DictConfig) -> None:
         device = "mps" if torch.backends.mps.is_available() else "cpu"
 
     # linear based noise scheduler
-    beta_array = torch.linspace(B_1, B_T, T)
-    alpha_bar_array = torch.zeros(T).to(device)
-    alpha_bar_array[0] = 1 - beta_array[0]
-    for i in range(1, T):
-        alpha_bar_array[i] = alpha_bar_array[i - 1] * (1 - beta_array[i])
+    beta_array = torch.linspace(B_1, B_T, T, dtype=torch.float32).to(device)
+    alpha_array  = 1.0 - beta_array
+    alpha_bar_array = torch.cumprod(alpha_array, dim=0, dtype=torch.float32)
+
 
     def save_image(x, path):
         img = (x + 1.0) * 255.0 / 2.0
@@ -82,34 +78,33 @@ def main(cfg: DictConfig) -> None:
     with torch.no_grad():
         model.eval()
 
-        x_t = torch.randn(1, 3, size[0], size[1]).to(device) # intitally set to normal distrubtion
+        batch_size = 1
+        x_t = torch.randn(batch_size, 3, size[0], size[1]).to(device) # intitally set to normal distrubtion
 
-        for t in tqdm(range(999, 0, -1), desc="Generating images"):
+        for t in tqdm(reversed(range(T)), desc="Generating images"):
+            timesteps = t * torch.ones(batch_size).to(device).long()
+            eps_pred = model(x_t, timesteps)['sample']
 
-            mean = model(x_t, torch.Tensor([t]).to(device).long())
-            if cfg.model == 'HF':
-                mean = mean['sample']
+            alpha_bar_t = alpha_bar_array[timesteps].view(-1,1,1,1)
+            beta_t = beta_array[timesteps].view(-1,1,1,1)
+            alpha_t = alpha_array[timesteps].view(-1,1,1,1)
 
-            alpha_bar = alpha_bar_array[t]
-            alpha_bar_sub1 = alpha_bar_array[t - 1]
-            alpha_current = alpha_bar / alpha_bar_sub1
+            mean = ( 1/alpha_t.sqrt() ) * ( x_t - (beta_t/((1 - alpha_bar_t).sqrt())) * eps_pred)
+            epsilon = torch.zeros_like(x_t)
 
-            x_t = torch.sqrt(1 / alpha_bar) * (
-            x_t
-            - ((1 - alpha_current) / (torch.sqrt(1 - alpha_bar))) * mean
-            )
-    #            x_t = torch.clip(x_t, -1, 1)
-            if t > 1:
+            if t > 0:
+                alpha_bar_t_sub1 = alpha_bar_array[timesteps - 1].view(-1,1,1,1)
+                beta_tilde = beta_t * (1 - alpha_bar_t_sub1) / (1 - alpha_bar_t)
                 z = torch.randn_like(x_t)
-
-                sigma  =  (1 - alpha_bar_sub1)/ (1 - alpha_bar) * torch.sqrt( 1- alpha_current )
-                x_t = sigma * z
+                epsilon =  (beta_tilde).sqrt() * z
+            x_t = mean + epsilon
 
             if t % 100 == 0:
                 save_image(x_t[0], f"{path}/samples/{t}.png")
 
         save_image(x_t[0], f"{path}/generated_image.png")
         print(f"saved image at {path}/generated_image.png")
+
 
 if __name__ == "__main__":
     main()
