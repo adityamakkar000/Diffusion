@@ -19,11 +19,10 @@ def main(cfg: DictConfig) -> None:
         load = True
         path = f"./runs/{cfg.path}"
         assert os.path.exists(path), "path does not exist"
-
-        cfg = OmegaConf.load(os.path.join(path, "config.yaml"))
+        print(f"using model found at {path}")
     else:
         load = False
-        path = f"runs/{cfg.save_dir}"
+        path = f"./runs/{cfg.save_dir}"
         if not os.path.exists(path):
             os.makedirs(path)
         OmegaConf.save(config=cfg, f=os.path.join(path, "config.yaml"))
@@ -78,20 +77,6 @@ def main(cfg: DictConfig) -> None:
 
     optimizer = torch.optim.Adam(model.parameters(), lr)
 
-    lowest_loss = 100000
-    if load:
-        checkpoint = torch.load(
-            f"./runs/{path}/model.pt", weights_only=True, map_location=device
-        )
-        model.load_state_dict(checkpoint["model_state_dict"])
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        lowest_loss = checkpoint["loss"]
-        print(
-            "loaded model from checkpoint at step",
-            checkpoint["step"],
-            "with loss",
-            checkpoint["loss"],
-        )
 
     def training_step(split: "str", model, return_loss=False) -> Tensor:
 
@@ -129,18 +114,38 @@ def main(cfg: DictConfig) -> None:
         if split == "test":
             return loss_final
 
+    lowest_loss = 100000
+    step = 0
+
+    if load:
+        checkpoint = torch.load(
+            f"{path}/model.pt", weights_only=True, map_location=device
+        )
+        model.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        lowest_loss = checkpoint["loss"]
+        step = checkpoint["step"]
+        print(
+            "loaded model from checkpoint at step",
+            checkpoint["step"],
+            "with loss",
+            checkpoint["loss"],
+        )
+
+    
+
+
     print("Files loaded, setting up model ...\n\n")
     print("device", device)
     print("model params", sum(p.numel() for p in model.parameters()))
     print("starting training ... \n\n")
 
     start = time.time()
-    _ = 0
 
-    for _ in tqdm(range(max_steps), desc="Training"):
+    for _ in tqdm(range(step, max_steps), desc="Training"):
 
         if _ % checkpoint_interval == 0:
-            loss += training_step("train", model, return_loss=True)
+            loss = training_step("train", model, return_loss=True)
             if device == "cuda":
                 torch.cuda.synchronize()
             end = time.time() - start

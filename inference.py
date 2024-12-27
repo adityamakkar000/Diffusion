@@ -25,6 +25,7 @@ def main(cfg: DictConfig) -> None:
         os.makedirs(f"{path}/samples")
 
     print(OmegaConf.to_yaml(cfg))
+    print(f"Saving images at {path}")
 
     lr = cfg.training.lr
     size = cfg.training.size
