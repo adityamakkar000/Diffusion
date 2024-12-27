@@ -1,7 +1,7 @@
 defaults:
   - training: config
-  - model_config: self
+  - model_config: HF
   - _self_
 
-model: self
-save_dir: /path/to/save_dir
+model: HF
+save_dir: ./results/lightning

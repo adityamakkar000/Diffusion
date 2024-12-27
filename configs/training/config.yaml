@@ -1,7 +1,7 @@
-batch_size_train: 4
+batch_size_train: 32
 batch_size_accumulation_multiple: 1
 batch_size_test: 4
-lr: 0.001
+lr: 1e-4
 max_steps: 1000
 scale: 4
 size: [64, 64]

@@ -53,6 +53,7 @@ def main(cfg: DictConfig) -> None:
     train_data, test_data = get_dataloaders(size, batch_size_train, batch_size_test)
 
     dataset = {"train": train_data, "test": test_data}
+    batch_size = {"train": batch_size_train, "test": batch_size_test }
 
     # linear based noise scheduler
     beta_array = torch.linspace(B_1, B_T, T)
@@ -76,7 +77,7 @@ def main(cfg: DictConfig) -> None:
     def get_training_batch(split: "str" = "train") -> Tuple[Tensor, Tensor, Tensor]:
         x_0 = dataset[split]()
         x_0 = x_0.to(device)
-        t = torch.randint(1, T, (batch_size_test,)).int().to(device)
+        t = torch.randint(1, T, (batch_size[split],)).int().to(device)
         alpha_bar = get_alpha(t)
         z = torch.randn_like(x_0)
         x_t = torch.sqrt(alpha_bar) * x_0 + torch.sqrt(1 - alpha_bar) * z
@@ -115,23 +116,24 @@ def main(cfg: DictConfig) -> None:
         if split == "test":
             loss_final = 0
 
-        for b in range(batch_size_accumlation_multiple):
+        with torch.enable_grad() if split == 'train' else torch.no_grad():
+            for b in range(batch_size_accumlation_multiple):
 
-            x_t, t, z = get_training_batch(split)
-            predicted_noise = model(x_t, t)
+                x_t, t, z = get_training_batch(split)
+                predicted_noise = model(x_t, t)
 
-            if cfg.model == "HF":
-                predicted_noise = predicted_noise["sample"]
+                if cfg.model == "HF":
+                    predicted_noise = predicted_noise["sample"]
 
-            loss = (
-                1 / (T * batch_size_accumlation_multiple * batch_size_train)
-            ) * F.mse_loss(predicted_noise, z, reduction="sum")
+                loss = (
+                    1 / (T * batch_size_accumlation_multiple * batch_size[split])
+                ) * F.mse_loss(predicted_noise, z, reduction="sum")
 
-            if split == "train":
-                loss.backward()
+                if split == "train":
+                    loss.backward()
 
-            if split == "test":
-                loss_final += loss.detach().item()
+                if split == "test":
+                    loss_final += loss.detach().item()
 
         if split == "train":
             optimizer.step()
