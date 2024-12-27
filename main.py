@@ -19,6 +19,7 @@ def main(cfg: DictConfig) -> None:
         load = True
         path = f"runs/{cfg.path}"
         assert os.path.exists(path), "path does not exist"
+
         cfg = OmegaConf.load(os.path.join(path, "config.yaml"))
     else:
         load = False
@@ -57,6 +58,7 @@ def main(cfg: DictConfig) -> None:
     beta_array = torch.linspace(B_1, B_T, T)
     alpha_bar_array = torch.zeros(T).to(device)
     alpha_bar_array[0] = 1 - beta_array[0]
+
     for i in range(1, T):
         alpha_bar_array[i] = alpha_bar_array[i - 1] * (1 - beta_array[i])
 
