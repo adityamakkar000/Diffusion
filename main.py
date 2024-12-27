@@ -109,11 +109,13 @@ def main(cfg: DictConfig) -> None:
             checkpoint["loss"],
         )
 
-    def training_step(split: "str", model) -> Tensor:
+    def training_step(split: "str", model, return_loss=False) -> Tensor:
 
         if split == "train":
+            model.train()
             optimizer.zero_grad()
         if split == "test":
+            model.eval()
             loss_final = 0
 
         with torch.enable_grad() if split == 'train' else torch.no_grad():
@@ -137,7 +139,9 @@ def main(cfg: DictConfig) -> None:
 
         if split == "train":
             optimizer.step()
-            return loss.detach().item() * batch_size_accumlation_multiple
+
+            if return_loss:
+                return loss.detach().item() * batch_size_accumlation_multiple
         if split == "test":
             return loss_final
 
@@ -148,15 +152,11 @@ def main(cfg: DictConfig) -> None:
 
     start = time.time()
     _ = 0
+
     for _ in tqdm(range(max_steps), desc="Training"):
-        optimizer.zero_grad()
-        model.train()
-        loss = training_step("train", model)
-        optimizer.step()
 
         if _ % checkpoint_interval == 0:
-
-
+            loss += training_step("train", model, return_loss=True)
             if device == "cuda":
                 torch.cuda.synchronize()
             end = time.time() - start
@@ -167,9 +167,8 @@ def main(cfg: DictConfig) -> None:
             percentage_complete = 100.0 * (_ + 1) / max_steps
             batch_percentage_complete = 100.0 * (batch_idx) / len(train_data)
 
-            with torch.no_grad():
-                model.eval()
-                loss_eval = training_step("test", model)
+
+            loss_eval = training_step("test", model)
 
             saved = False
             if loss_eval < lowest_loss:
@@ -193,6 +192,8 @@ def main(cfg: DictConfig) -> None:
 
             start = time.time()
 
+        else:
+            training_step("train", model)
 
 if __name__ == "__main__":
     main()
