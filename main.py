@@ -59,7 +59,8 @@ def main(cfg: DictConfig) -> None:
     alpha_bar_array = torch.cumprod(alpha_array, dim=0, dtype=torch.float32)
 
     def get_training_batch(index, split: "str" = "train") -> Tuple[Tensor, Tensor, Tensor]:
-        x_0 = dataset[split][index].to(device)
+        ds = dataset[split]
+        x_0 = (ds() if split == "test" else ds[index]).to(device)
         t = torch.randint(1, T, (batch_size[split],)).int().to(device)
         alpha_bar = alpha_bar_array[t].view(-1, 1, 1, 1)
         z = torch.randn_like(x_0)
@@ -95,7 +96,7 @@ def main(cfg: DictConfig) -> None:
             ).item()
         )
 
-    def training_step(split: "str", model, index) -> Tensor:
+    def training_step(split: "str", model, index=None) -> Tensor:
         if split == "train":
             model.train()
             optimizer.zero_grad()
