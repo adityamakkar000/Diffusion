@@ -1,9 +1,11 @@
-/files/*
-/venv/*
+**/files/*
+**/venv/*
 *.ipynb
 *.pyc
 *.pt
 *.out
-/outputs/*
-/runs/*
+**/outputs/*
+**/runs/*
 .DS_Store
+*.env
+**/wandb/*

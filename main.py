@@ -13,6 +13,9 @@ from hydra.core.config_store import ConfigStore
 from typing import Tuple, Union
 from tqdm import tqdm
 from dataclasses import dataclass
+import wandb
+from datetime import datetime
+
 
 @dataclass
 class TrainingConfig:
@@ -23,13 +26,14 @@ class TrainingConfig:
     min_lr: float = MISSING
     warmup_steps: int = MISSING
     end_steps: int = MISSING
-    size: Tuple[int,int] = MISSING
+    size: Tuple[int, int] = MISSING
     B_1: float = MISSING
     B_T: float = MISSING
     T: int = MISSING
     checkpoint_interval: int = MISSING
     max_steps: int = MISSING
     dataset: str = MISSING
+
 
 @dataclass
 class Config:
@@ -38,9 +42,12 @@ class Config:
     model: str = MISSING
     save_dir: str = MISSING
     path: Union[None, str] = MISSING
+    description: Union[None, str] = MISSING
+
 
 cs = ConfigStore.instance()
 cs.store(name="base", node=Config)
+
 
 @hydra.main(version_base=None, config_path="./configs")
 def main(cfg: DictConfig) -> None:
@@ -78,7 +85,9 @@ def main(cfg: DictConfig) -> None:
     else:
         device = "mps" if torch.backends.mps.is_available() else "cpu"
 
-    train_data, test_data = get_dataloaders(ds_split, size, batch_size_train, batch_size_test)
+    train_data, test_data = get_dataloaders(
+        ds_split, size, batch_size_train, batch_size_test
+    )
 
     dataset = {"train": train_data, "test": test_data}
     batch_size = {"train": batch_size_train, "test": batch_size_test}
@@ -117,12 +126,7 @@ def main(cfg: DictConfig) -> None:
         if step > end_steps:
             return min_lr
         return min_lr + 0.5 * (lr - min_lr) * (
-            1
-            + (
-                math.cos(
-                    (step - warmup_steps) / (end_steps - warmup_steps) * math.pi
-                )
-            )
+            1 + (math.cos((step - warmup_steps) / (end_steps - warmup_steps) * math.pi))
         )
 
     def training_step(split: "str", model) -> Tensor:
@@ -153,12 +157,14 @@ def main(cfg: DictConfig) -> None:
 
         if split == "train":
             optimizer.step()
+            return loss.detach().item()
 
         if split == "test":
             return loss_final
 
     lowest_loss = 100000
     max_steps = cfg.training.max_steps
+    step_inital = 0
 
     if load:
         checkpoint = torch.load(
@@ -167,7 +173,7 @@ def main(cfg: DictConfig) -> None:
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         lowest_loss = checkpoint["loss"]
-        # step = checkpoint["step"]
+        step_inital = checkpoint["step"]
         print(
             "loaded model from checkpoint at step",
             checkpoint["step"],
@@ -182,13 +188,25 @@ def main(cfg: DictConfig) -> None:
 
     start = time.time()
 
+    wandb_log = True if cfg.description is not None else False
 
+    if wandb_log:
+        current_time = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        wandb.init(
+            project="diffusion",
+            name=f"{cfg.save_dir}_{cfg.description}_{current_time}",
+            id=cfg.save_dir,
+            resume="must" if load else "never",
+            config=OmegaConf.to_container(cfg),
+        )
 
-    for step in tqdm(range(max_steps), desc="Training"):
+    for step in tqdm(range(step_inital, max_steps), desc="Training"):
         current_lr = get_lr(step)
         for param in optimizer.param_groups:
             param["lr"] = current_lr
-        training_step("train", model)
+        loss = training_step("train", model)
+        if not (step % checkpoint_interval == 0) and wandb_log:
+            wandb.log({"train loss": loss, "step": step, "lr": current_lr})
 
         if step % checkpoint_interval == 0:
 
@@ -197,7 +215,16 @@ def main(cfg: DictConfig) -> None:
             end = time.time() - start
 
             loss_eval = training_step("test", model)
-            percentage_complete = 100.0 * (step + 1) / max_steps
+            if wandb_log:
+                wandb.log(
+                    {
+                        "lr": current_lr,
+                        "train loss": loss,
+                        "val loss": loss_eval,
+                        "step": step,
+                    }
+                )
+
 
             saved = False
 
@@ -207,21 +234,25 @@ def main(cfg: DictConfig) -> None:
                     {
                         "step": step,
                         "model_state_dict": model.state_dict(),
-                            "optimizer_state_dict": optimizer.state_dict(),
-                            "loss": round(loss_eval, 6),
-                        },
-                        f"{path}/model.pt",
-                    )
+                        "optimizer_state_dict": optimizer.state_dict(),
+                        "loss": round(loss_eval, 6),
+                    },
+                    f"{path}/model.pt",
+                )
                 saved = True
+                
+            if not wandb_log:
+                percentage_complete = 100.0 * (step + 1) / max_steps
+                metric_string = f"Step {step} | Eval Loss: {loss_eval:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete "
+                if saved:
+                    metric_string += " | saved model"
 
-            metric_string = f"Step {step} | Eval Loss: {loss_eval:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete "
-            if saved:
-                metric_string += " | saved model"
-
-            print(metric_string)
+                print(metric_string)
 
         start = time.time()
 
+
+wandb.finish()
 
 if __name__ == "__main__":
     main()
