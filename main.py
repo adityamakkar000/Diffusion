@@ -124,7 +124,7 @@ def main(cfg: DictConfig) -> None:
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         lowest_loss = checkpoint["loss"]
-        step = checkpoint["step"]
+        # step = checkpoint["step"]
         print(
             "loaded model from checkpoint at step",
             checkpoint["step"],
