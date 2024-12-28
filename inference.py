@@ -26,6 +26,8 @@ def main(cfg: DictConfig) -> None:
 
     lr = cfg.training.lr
     size = cfg.training.size
+    if cfg.training.dataset == "cifar":
+        size = (32, 32)
     B_1 = cfg.training.B_1
     B_T = cfg.training.B_T
     T = cfg.training.T
