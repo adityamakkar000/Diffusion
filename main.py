@@ -2,16 +2,43 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 from setupDataset import get_dataloaders
-from models.DDPM.model import UNET
-from models.hf_diff.diff import createHFDiffusion
+from models.DDPM.model import UNET, UNetConfig
+from models.hf_diff.diff import createHFDiffusion, UNet2DModelConfig
 import time
-import math
 import os
 import hydra
-from omegaconf import DictConfig, OmegaConf
-from typing import Tuple
+from omegaconf import DictConfig, OmegaConf, MISSING
+from hydra.core.config_store import ConfigStore
+from typing import Tuple, Union
 from tqdm import tqdm
+from dataclasses import dataclass
 
+@dataclass
+class TrainingConfig:
+    batch_size_train: int = MISSING
+    batch_size_accumulation_multiple: int = MISSING
+    batch_size_test: int = MISSING
+    lr: float = MISSING
+    min_lr: float = MISSING
+    warmup_steps: int = MISSING
+    end_steps: int = MISSING
+    size: Tuple[int,int] = MISSING
+    B_1: float = MISSING
+    B_T: float = MISSING
+    T: int = MISSING
+    checkpoint_interval: int = MISSING
+    max_steps: int = MISSING
+
+@dataclass
+class Config:
+    training: TrainingConfig = MISSING
+    model_config: UNet2DModelConfig = MISSING
+    model: str = MISSING
+    save_dir: str = MISSING
+    path: Union[None, str] = MISSING
+
+cs = ConfigStore.instance()
+cs.store(name="base", node=Config)
 
 @hydra.main(version_base=None, config_path="./configs")
 def main(cfg: DictConfig) -> None:
@@ -58,9 +85,8 @@ def main(cfg: DictConfig) -> None:
     alpha_array = 1.0 - beta_array
     alpha_bar_array = torch.cumprod(alpha_array, dim=0, dtype=torch.float32)
 
-    def get_training_batch(index, split: "str" = "train") -> Tuple[Tensor, Tensor, Tensor]:
-        ds = dataset[split]
-        x_0 = (ds() if split == "test" else ds[index]).to(device)
+    def get_training_batch(split: "str" = "train") -> Tuple[Tensor, Tensor, Tensor]:
+        x_0 = dataset[split]().to(device)
         t = torch.randint(1, T, (batch_size[split],)).int().to(device)
         alpha_bar = alpha_bar_array[t].view(-1, 1, 1, 1)
         z = torch.randn_like(x_0)
@@ -96,7 +122,7 @@ def main(cfg: DictConfig) -> None:
             ).item()
         )
 
-    def training_step(split: "str", model, index=None) -> Tensor:
+    def training_step(split: "str", model) -> Tensor:
         if split == "train":
             model.train()
             optimizer.zero_grad()
@@ -106,7 +132,7 @@ def main(cfg: DictConfig) -> None:
 
         with torch.enable_grad() if split == "train" else torch.no_grad():
             for b in range(batch_size_accumlation_multiple):
-                x_t, t, z = get_training_batch(index, split)
+                x_t, t, z = get_training_batch(split)
                 predicted_noise = model(x_t, t)
 
                 if cfg.model == "HF":
@@ -129,8 +155,7 @@ def main(cfg: DictConfig) -> None:
             return loss_final
 
     lowest_loss = 100000
-    epochs = cfg.training.epochs
-    steps_per_epoch = math.ceil(len(train_data) / (batch_size_train * batch_size_accumlation_multiple))
+    max_steps = cfg.training.max_steps
 
     if load:
         checkpoint = torch.load(
@@ -154,42 +179,43 @@ def main(cfg: DictConfig) -> None:
 
     start = time.time()
 
-    for _ in range(epochs):
 
-        for step in tqdm(range(steps_per_epoch), desc=f"Epoch {_}"):
-            current_lr = get_lr(_ * steps_per_epoch + step)
-            for param in optimizer.param_groups:
-                param["lr"] = current_lr
-            training_step("train", model, index=step)
 
-        if device == "cuda":
-            torch.cuda.synchronize()
-        end = time.time() - start
+    for step in tqdm(range(max_steps), desc="Training"):
+        current_lr = get_lr(step)
+        for param in optimizer.param_groups:
+            param["lr"] = current_lr
+        training_step("train", model)
 
-        percentage_complete = 100.0 * (_ + 1) / epochs
-        loss_eval = training_step("test", model)
+        if step % checkpoint_interval == 0:
 
-        saved = False
+            if device == "cuda":
+                torch.cuda.synchronize()
+            end = time.time() - start
 
-        if (_ + 1) % checkpoint_interval == 0:
+            loss_eval = training_step("test", model)
+            percentage_complete = 100.0 * (step + 1) / max_steps
+
+            saved = False
+
             if loss_eval < lowest_loss:
                 lowest_loss = loss_eval
                 torch.save(
                     {
-                        "step": _,
+                        "step": step,
                         "model_state_dict": model.state_dict(),
-                        "optimizer_state_dict": optimizer.state_dict(),
-                        "loss": round(loss_eval, 6),
-                    },
-                    f"{path}/model.pt",
-                )
+                            "optimizer_state_dict": optimizer.state_dict(),
+                            "loss": round(loss_eval, 6),
+                        },
+                        f"{path}/model.pt",
+                    )
                 saved = True
 
-        metric_string = f"Step {_} | Eval Loss: {loss_eval:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete "
-        if saved:
-            metric_string += " | saved model"
+            metric_string = f"Step {step} | Eval Loss: {loss_eval:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete "
+            if saved:
+                metric_string += " | saved model"
 
-        print(metric_string)
+            print(metric_string)
 
         start = time.time()
 

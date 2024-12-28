@@ -1,8 +1,9 @@
 defaults:
+  - base 
   - training: config
   - model_config: HF
   - _self_
 
 model: HF
 save_dir: test
-path: !!null 
+path: !!null

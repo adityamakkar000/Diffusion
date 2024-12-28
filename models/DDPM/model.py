@@ -1,9 +1,22 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 from torch import Tensor
 from typing import List, Tuple, Optional, Union
+from dataclasses import dataclass
+from omegaconf import MISSING
+
+@dataclass
+class UNetConfig:
+    timeStep: int = MISSING
+    originalSize: Tuple[int, int] = MISSING
+    inChannels: int = MISSING
+    channels: List[int] = MISSING
+    strides: List[int] = MISSING
+    n_heads: List[int] = MISSING
+    resNetBlocks: List[int] = MISSING
+    attn: List[bool] = MISSING
+    dropout: List[float] = MISSING
 
 
 class ResNetBlock(nn.Module):
@@ -237,4 +250,3 @@ class UNET(nn.Module):
         x = self.end(x)
 
         return x
-
