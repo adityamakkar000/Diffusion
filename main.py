@@ -14,7 +14,6 @@ from tqdm import tqdm
 
 @hydra.main(version_base=None, config_path="./configs")
 def main(cfg: DictConfig) -> None:
-
     if "path" in cfg and cfg.path is not None:
         load = True
         path = f"./runs/{cfg.path}"
@@ -34,7 +33,6 @@ def main(cfg: DictConfig) -> None:
     batch_size_test = cfg.training.batch_size_test
     lr = cfg.training.lr
     max_steps = cfg.training.max_steps
-    scale = cfg.training.scale
     size = cfg.training.size
 
     B_1 = cfg.training.B_1
@@ -97,7 +95,6 @@ def main(cfg: DictConfig) -> None:
         )
 
     def training_step(split: "str", model, return_loss=False) -> Tensor:
-
         if split == "train":
             model.train()
             optimizer.zero_grad()
@@ -107,7 +104,6 @@ def main(cfg: DictConfig) -> None:
 
         with torch.enable_grad() if split == "train" else torch.no_grad():
             for b in range(batch_size_accumlation_multiple):
-
                 x_t, t, z = get_training_batch(split)
                 predicted_noise = model(x_t, t)
 
@@ -158,7 +154,6 @@ def main(cfg: DictConfig) -> None:
     start = time.time()
 
     for _ in tqdm(range(step, max_steps), desc="Training"):
-
         # set learning rate
         lr = get_lr(_)
         for param in optimizer.param_groups:

@@ -1,11 +1,9 @@
-from dataclasses import dataclass
-import huggingface_hub
 from diffusers import UNet2DModel
-from typing import Optional, List, Tuple, Union, Dict, Any
 from omegaconf import DictConfig
 
+
 def createHFDiffusion(config: DictConfig) -> UNet2DModel:
-     return UNet2DModel(
+    return UNet2DModel(
         sample_size=config.image_size,
         in_channels=config.in_channels,
         out_channels=config.out_channels,

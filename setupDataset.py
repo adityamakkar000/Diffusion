@@ -19,7 +19,6 @@ class ToScaleTensor:
 
 
 class Dataset:
-
     def __init__(self, data: Dataset, batch_size: int):
         self.data = data
         self.length = len(data)
@@ -35,7 +34,6 @@ class Dataset:
 
 
 def get_dataloaders(size, batch_size_train=64, batch_size_test=256):
-
     train_loader = Dataset(
         torchvision.datasets.CelebA(
             root="./files",

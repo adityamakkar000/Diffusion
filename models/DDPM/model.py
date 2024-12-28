@@ -3,18 +3,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torch import Tensor
-import matplotlib.pyplot as plt
-import numpy as np
-
 from typing import List, Tuple, Optional, Union
-from dataclasses import dataclass, field
-
 
 
 class ResNetBlock(nn.Module):
-
     def __init__(self, numGroups: int, inChannels: int, outChannels: int) -> None:
-
         super().__init__()
 
         assert outChannels % numGroups == 0
@@ -33,7 +26,6 @@ class ResNetBlock(nn.Module):
         self.relu = nn.ReLU()
 
     def forward(self, x: Tensor) -> Tensor:
-
         assert x.dim() == 4
         assert x.shape[1] == self.ch
 
@@ -45,39 +37,33 @@ class ResNetBlock(nn.Module):
 
 
 class TimeEmbedding(nn.Module):
-
     def __init__(
         self,
         timesteps: int,
         size: Tuple[int, int],
     ):
-
         super().__init__()
 
         self.pos_embedding = nn.Embedding(timesteps, size[0] * size[1])
         self.size = size
 
-
     def forward(self, t: Tensor):
-
         assert t.dim() == 1
 
         b = t.shape[0]
         t_emb = self.pos_embedding(t)
-        t_emb = t_emb.view(b,1,self.size[0], self.size[1])
+        t_emb = t_emb.view(b, 1, self.size[0], self.size[1])
 
         return t_emb
 
 
 class Attention(nn.Module):
-
     def __init__(
         self,
         n_heads: int,
         in_channel: int,
         dropout: float,
     ) -> None:
-
         super().__init__()
 
         n_emb = in_channel
@@ -94,14 +80,13 @@ class Attention(nn.Module):
         self.emb = n_emb // n_heads  # embedding per head
 
     def forward(self, x: Tensor) -> Tensor:
-
         assert x.dim() == 4
 
         b, c, h, w = x.shape
-        qkv = self.qkv(x) # pass through projection
-        qkv = qkv.view(b, 3 * self.n_heads, c // self.n_heads, h * w).transpose(-2,-1)
+        qkv = self.qkv(x)  # pass through projection
+        qkv = qkv.view(b, 3 * self.n_heads, c // self.n_heads, h * w).transpose(-2, -1)
         q, k, v = qkv.split(self.n_heads, dim=1)
-        attn = F.softmax((q @ k.transpose(2,3)) / (self.emb**0.5), dim=-1)
+        attn = F.softmax((q @ k.transpose(2, 3)) / (self.emb**0.5), dim=-1)
         attn = self.dropout(attn)
         self.logits = attn @ v  # (b, hs, h * w, c // hs)
         self.logits = self.logits.transpose(1, 2).view(b, h * w, c)
@@ -111,7 +96,6 @@ class Attention(nn.Module):
 
 
 class Sample(nn.Module):
-
     def __init__(
         self,
         inChannel: int,
@@ -147,7 +131,6 @@ class Sample(nn.Module):
                 self.sample = nn.Conv2d(outChannel, outChannel, 3, stride, 1)
 
     def forward(self, x: Tensor) -> Tensor:
-
         for block in self.network:
             x = block(x)
 
@@ -158,7 +141,6 @@ class Sample(nn.Module):
 
 
 class UNET(nn.Module):
-
     def __init__(
         self,
         timeStep: int,
@@ -171,7 +153,6 @@ class UNET(nn.Module):
         attn: List[bool],
         dropout: List[float],
     ) -> None:
-
         super().__init__()
 
         assert len(n_heads) == sum(attn)
@@ -233,11 +214,10 @@ class UNET(nn.Module):
         self.end = ResNetBlock(1, 2 * channels[0], inChannels)
 
     def forward(self, x: Tensor, t: Tensor) -> Tensor:
-
         assert t.shape[0] == x.shape[0]
 
         time_emb = self.time_emb(t)
-        x = self.conv_in(x) + time_emb # (b, c, h, w) + (1,1,h,w)
+        x = self.conv_in(x) + time_emb  # (b, c, h, w) + (1,1,h,w)
 
         skip_connections = [x]
 
@@ -258,58 +238,3 @@ class UNET(nn.Module):
 
         return x
 
-   
-
-
-if __name__ == "__main__":
-
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
-
-    batch_size = 1
-    image_shape = (218 // 2, 178 // 2)
-    sample_batch = torch.randn(
-        batch_size, 3, *image_shape, device=device, dtype=torch.float32
-    )
-    sample_batch.to(device)
-
-    model = UNET(
-        timeStep=1000,
-        orginalSize=image_shape,
-        inChannels=3,
-        channels=[32, 64, 128],
-        strides=[2, 2],
-        n_heads=[1],
-        attn=[True, False, False],
-        resNetBlocks=[2, 2, 2],
-        dropout=[0.2],
-    )
-    model.to(device)
-    print("params size", sum(p.numel() for p in model.parameters()))
-
-    print(device)
-
-    with torch.no_grad():
-        output = model(
-            sample_batch, torch.Tensor([5 for i in range(batch_size)]).to(device).int()
-        )
-    print(output.shape)
-
-    sample = torch.randn(1, 3, *image_shape, device=device, dtype=torch.float32)
-
-    B_1 = 10**-4
-    B_T = 0.02
-    T = 1000
-
-    def create_random_scheduler(t: int) -> float:
-        slope = (B_T - B_1) / (T - 1)
-        return slope * (t - 1) + B_1
-
-    noise_arr = torch.zeros(T).to(device)
-    noise_arr[0] = 1 - create_random_scheduler(1)
-    for i in range(1, T):
-        noise = create_random_scheduler(i + 1)
-        noise_arr[i] = noise_arr[i - 1] * (1 - noise)
-
-    output = model.inference(sample, noise_arr)
-
-    print(output.shape)

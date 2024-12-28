@@ -1,9 +1,7 @@
 import torch
-import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from models.DDPM.model import UNET
 from models.hf_diff.diff import createHFDiffusion
-import numpy as np
 import os
 import hydra
 from omegaconf import DictConfig, OmegaConf
@@ -12,7 +10,6 @@ from tqdm import tqdm
 
 @hydra.main(version_base=None, config_path="./configs")
 def main(cfg: DictConfig) -> None:
-
     if "path" in cfg and cfg.path is not None:
         path = f"./runs/{cfg.path}"
         assert os.path.exists(path), f"path, {path}, does not exist"
