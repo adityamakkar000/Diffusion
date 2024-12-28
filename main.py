@@ -28,6 +28,7 @@ class TrainingConfig:
     T: int = MISSING
     checkpoint_interval: int = MISSING
     max_steps: int = MISSING
+    dataset: str = MISSING
 
 @dataclass
 class Config:
@@ -62,6 +63,7 @@ def main(cfg: DictConfig) -> None:
     lr = cfg.training.lr
 
     size = cfg.training.size
+    ds_split = cfg.training.dataset
 
     B_1 = cfg.training.B_1
     B_T = cfg.training.B_T
@@ -75,7 +77,7 @@ def main(cfg: DictConfig) -> None:
     else:
         device = "mps" if torch.backends.mps.is_available() else "cpu"
 
-    train_data, test_data = get_dataloaders(size, batch_size_train, batch_size_test)
+    train_data, test_data = get_dataloaders(ds_split, size, batch_size_train, batch_size_test)
 
     dataset = {"train": train_data, "test": test_data}
     batch_size = {"train": batch_size_train, "test": batch_size_test}

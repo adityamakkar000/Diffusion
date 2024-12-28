@@ -11,3 +11,4 @@ end_steps: 5000
 min_lr: 1e-6
 lr: 1e-4
 checkpoint_interval: 10
+dataset: cifar
