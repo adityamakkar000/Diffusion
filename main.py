@@ -5,6 +5,7 @@ from setupDataset import get_dataloaders
 from models.DDPM.model import UNET
 from models.hf_diff.diff import createHFDiffusion
 import time
+import math
 import os
 import hydra
 from omegaconf import DictConfig, OmegaConf
@@ -32,7 +33,7 @@ def main(cfg: DictConfig) -> None:
     batch_size_accumlation_multiple = cfg.training.batch_size_accumulation_multiple
     batch_size_test = cfg.training.batch_size_test
     lr = cfg.training.lr
-    max_steps = cfg.training.max_steps
+
     size = cfg.training.size
 
     B_1 = cfg.training.B_1
@@ -57,8 +58,8 @@ def main(cfg: DictConfig) -> None:
     alpha_array = 1.0 - beta_array
     alpha_bar_array = torch.cumprod(alpha_array, dim=0, dtype=torch.float32)
 
-    def get_training_batch(split: "str" = "train") -> Tuple[Tensor, Tensor, Tensor]:
-        x_0 = dataset[split]().to(device)
+    def get_training_batch(index, split: "str" = "train") -> Tuple[Tensor, Tensor, Tensor]:
+        x_0 = dataset[split][index].to(device)
         t = torch.randint(1, T, (batch_size[split],)).int().to(device)
         alpha_bar = alpha_bar_array[t].view(-1, 1, 1, 1)
         z = torch.randn_like(x_0)
@@ -75,26 +76,26 @@ def main(cfg: DictConfig) -> None:
 
     optimizer = torch.optim.Adam(model.parameters(), lr)
 
-    lr = cfg.lr
-    min_lr = cfg.min_lr
-    warmp_up_steps = cfg.warmp_up_steps
-    end_steps = cfg.end_steps
+    lr = cfg.training.lr
+    min_lr = cfg.training.min_lr
+    warmup_steps = cfg.training.warmup_steps
+    end_steps = cfg.training.end_steps
 
     def get_lr(step):
-        if step < warmp_up_steps:
-            return lr * (step + 1) / (warmp_up_steps + 1)
+        if step < warmup_steps:
+            return lr * (step + 1) / (warmup_steps + 1)
         if step > end_steps:
             return min_lr
         return min_lr + 0.5 * (lr - min_lr) * (
             1
             + (
                 torch.cos(
-                    (step - warmp_up_steps) / (end_steps - warmp_up_steps) * torch.pi
+                    (step - warmup_steps) / (end_steps - warmup_steps) * torch.pi
                 )
             ).item()
         )
 
-    def training_step(split: "str", model, return_loss=False) -> Tensor:
+    def training_step(split: "str", model, index) -> Tensor:
         if split == "train":
             model.train()
             optimizer.zero_grad()
@@ -104,7 +105,7 @@ def main(cfg: DictConfig) -> None:
 
         with torch.enable_grad() if split == "train" else torch.no_grad():
             for b in range(batch_size_accumlation_multiple):
-                x_t, t, z = get_training_batch(split)
+                x_t, t, z = get_training_batch(index, split)
                 predicted_noise = model(x_t, t)
 
                 if cfg.model == "HF":
@@ -123,13 +124,12 @@ def main(cfg: DictConfig) -> None:
         if split == "train":
             optimizer.step()
 
-            if return_loss:
-                return loss.detach().item() * batch_size_accumlation_multiple
         if split == "test":
             return loss_final
 
     lowest_loss = 100000
-    step = 0
+    epochs = cfg.training.epochs
+    steps_per_epoch = math.ceil(len(train_data) / (batch_size_train * batch_size_accumlation_multiple))
 
     if load:
         checkpoint = torch.load(
@@ -153,27 +153,24 @@ def main(cfg: DictConfig) -> None:
 
     start = time.time()
 
-    for _ in tqdm(range(step, max_steps), desc="Training"):
-        # set learning rate
-        lr = get_lr(_)
-        for param in optimizer.param_groups:
-            param["lr"] = lr
+    for _ in range(epochs):
 
-        if _ % checkpoint_interval == 0:
-            loss = training_step("train", model, return_loss=True)
-            if device == "cuda":
-                torch.cuda.synchronize()
-            end = time.time() - start
+        for step in tqdm(range(steps_per_epoch), desc=f"Epoch {_}"):
+            current_lr = get_lr(_ * steps_per_epoch + step)
+            for param in optimizer.param_groups:
+                param["lr"] = current_lr
+            training_step("train", model, index=step)
 
-            batch_idx = (
-                (_ + 1) * batch_size_accumlation_multiple * batch_size_train
-            ) % len(train_data)
-            percentage_complete = 100.0 * (_ + 1) / max_steps
-            batch_percentage_complete = 100.0 * (batch_idx) / len(train_data)
+        if device == "cuda":
+            torch.cuda.synchronize()
+        end = time.time() - start
 
-            loss_eval = training_step("test", model)
+        percentage_complete = 100.0 * (_ + 1) / epochs
+        loss_eval = training_step("test", model)
 
-            saved = False
+        saved = False
+
+        if (_ + 1) % checkpoint_interval == 0:
             if loss_eval < lowest_loss:
                 lowest_loss = loss_eval
                 torch.save(
@@ -187,16 +184,13 @@ def main(cfg: DictConfig) -> None:
                 )
                 saved = True
 
-            metric_string = f"Step {_} | Train Loss: {loss:.6f} | Eval Loss: {loss_eval:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete | {batch_percentage_complete:.2f}% dataset complete "
-            if saved:
-                metric_string += " | saved model"
+        metric_string = f"Step {_} | Eval Loss: {loss_eval:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete "
+        if saved:
+            metric_string += " | saved model"
 
-            print(metric_string)
+        print(metric_string)
 
-            start = time.time()
-
-        else:
-            training_step("train", model)
+        start = time.time()
 
 
 if __name__ == "__main__":

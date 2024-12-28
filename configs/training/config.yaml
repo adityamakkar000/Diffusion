@@ -1,14 +1,14 @@
-batch_size_train: 32
+batch_size_train: 4
 batch_size_accumulation_multiple: 1
 batch_size_test: 4
-max_steps: 1000
+epochs: 100
 scale: 4
 size: [64, 64]
 B_1: 0.0001
 B_T: 0.02
 T: 1000
 warmup_steps: 100
-end_steps: 700
+end_steps: 5000
 min_lr: 1e-6
 lr: 1e-4
 checkpoint_interval: 10

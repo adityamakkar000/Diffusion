@@ -1,11 +1,8 @@
 import torch
 import torchvision
 import numpy as np
-import matplotlib.pyplot
 from torch import Tensor
 from torch.utils.data import Dataset
-import typing
-from torch.nn.functional import interpolate
 
 
 class ToScaleTensor:
@@ -32,6 +29,10 @@ class Dataset:
         img = torch.cat([self.data[i][0] for i in indices], dim=0)
         return img
 
+    def __getitem__(self, idx) -> Tensor:
+        indices = torch.arange(idx * self.batch_size, min((idx + 1) * self.batch_size, self.length)).int()
+        img = torch.cat([self.data[i][0] for i in indices], dim=0)
+        return img
 
 def get_dataloaders(size, batch_size_train=64, batch_size_test=256):
     train_loader = Dataset(
@@ -68,4 +69,5 @@ def get_dataloaders(size, batch_size_train=64, batch_size_test=256):
 
 
 if __name__ == "__main__":
+    x,y = get_dataloaders((64,64))
     print("good to go")

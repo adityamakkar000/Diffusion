@@ -4,5 +4,5 @@ defaults:
   - _self_
 
 model: HF
-save_dir: lightning2
-path: lightning2
+save_dir: test
+path: !!null 

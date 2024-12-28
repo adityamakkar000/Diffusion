@@ -3,9 +3,9 @@ in_channels: 3  # number of input channels
 out_channels: 3
 layers_per_block: 2
 block_out_channels:
-  - 128
-  - 256
-  - 512
+  - 32
+  - 32
+  - 32
 down_block_types:
   - AttnDownBlock2D
   - DownBlock2D
