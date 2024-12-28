@@ -209,7 +209,6 @@ def main(cfg: DictConfig) -> None:
             wandb.log({"train loss": loss, "step": step, "lr": current_lr})
 
         if step % checkpoint_interval == 0:
-
             if device == "cuda":
                 torch.cuda.synchronize()
             end = time.time() - start
@@ -225,7 +224,6 @@ def main(cfg: DictConfig) -> None:
                     }
                 )
 
-
             saved = False
 
             if loss_eval < lowest_loss:
@@ -240,7 +238,7 @@ def main(cfg: DictConfig) -> None:
                     f"{path}/model.pt",
                 )
                 saved = True
-                
+
             if not wandb_log:
                 percentage_complete = 100.0 * (step + 1) / max_steps
                 metric_string = f"Step {step} | Eval Loss: {loss_eval:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete "

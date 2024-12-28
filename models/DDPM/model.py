@@ -6,6 +6,7 @@ from typing import List, Tuple, Optional, Union
 from dataclasses import dataclass
 from omegaconf import MISSING
 
+
 @dataclass
 class UNetConfig:
     timeStep: int = MISSING

@@ -8,6 +8,7 @@ from torch.utils.data import Dataset
 class ToScaleTensor:
     def __init__(self) -> None:
         pass
+
     def __call__(self, img: Tensor) -> Tensor:
         img = (2.0 / 255.0) * torch.tensor(np.array(img)).permute(2, 0, 1) - 1.0
         img = img.unsqueeze(dim=0)
@@ -29,9 +30,12 @@ class Dataset:
         return img
 
     def __getitem__(self, idx) -> Tensor:
-        indices = torch.arange(idx * self.batch_size, min((idx + 1) * self.batch_size, self.length)).int()
+        indices = torch.arange(
+            idx * self.batch_size, min((idx + 1) * self.batch_size, self.length)
+        ).int()
         img = torch.cat([self.data[i][0] for i in indices], dim=0)
         return img
+
 
 def get_dataloaders_celeba(size, batch_size_train=64, batch_size_test=256):
     train_loader = Dataset(
@@ -66,6 +70,7 @@ def get_dataloaders_celeba(size, batch_size_train=64, batch_size_test=256):
 
     return train_loader, test_loader
 
+
 def get_dataloaders_cifar(batch_size_train=64, batch_size_test=256):
     train_loader = Dataset(
         torchvision.datasets.CIFAR10(
@@ -75,7 +80,6 @@ def get_dataloaders_cifar(batch_size_train=64, batch_size_test=256):
             transform=torchvision.transforms.Compose(
                 [
                     ToScaleTensor(),
-
                 ]
             ),
         ),
@@ -88,7 +92,6 @@ def get_dataloaders_cifar(batch_size_train=64, batch_size_test=256):
             transform=torchvision.transforms.Compose(
                 [
                     ToScaleTensor(),
-
                 ]
             ),
             train=False,
@@ -98,6 +101,7 @@ def get_dataloaders_cifar(batch_size_train=64, batch_size_test=256):
     )
 
     return train_loader, test_loader
+
 
 def get_dataloaders(ds_split, size, batch_size_train, batch_size_test):
     print(f"preparing dataset {ds_split} ...")
@@ -109,7 +113,8 @@ def get_dataloaders(ds_split, size, batch_size_train, batch_size_test):
     else:
         raise NotImplementedError("dataset not implemented")
 
+
 if __name__ == "__main__":
-    x,y = get_dataloaders_cifar()
-    x,y = get_dataloaders_celeba((64,64))
+    x, y = get_dataloaders_cifar()
+    x, y = get_dataloaders_celeba((64, 64))
     print("good to go")

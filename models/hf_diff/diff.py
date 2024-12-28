@@ -2,6 +2,7 @@ from diffusers import UNet2DModel
 from dataclasses import dataclass
 from omegaconf import MISSING
 
+
 @dataclass
 class UNet2DModelConfig:
     image_size: int = MISSING
@@ -11,6 +12,7 @@ class UNet2DModelConfig:
     block_out_channels: list = MISSING
     down_block_types: list = MISSING
     up_block_types: list = MISSING
+
 
 def createHFDiffusion(config: UNet2DModelConfig) -> UNet2DModel:
     return UNet2DModel(
