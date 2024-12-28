@@ -6,6 +6,7 @@ from models.DDPM.model import UNET, UNetConfig
 from models.hf_diff.diff import createHFDiffusion, UNet2DModelConfig
 import time
 import os
+import math
 import hydra
 from omegaconf import DictConfig, OmegaConf, MISSING
 from hydra.core.config_store import ConfigStore
@@ -118,10 +119,10 @@ def main(cfg: DictConfig) -> None:
         return min_lr + 0.5 * (lr - min_lr) * (
             1
             + (
-                torch.cos(
-                    (step - warmup_steps) / (end_steps - warmup_steps) * torch.pi
+                math.cos(
+                    (step - warmup_steps) / (end_steps - warmup_steps) * math.pi
                 )
-            ).item()
+            )
         )
 
     def training_step(split: "str", model) -> Tensor:
