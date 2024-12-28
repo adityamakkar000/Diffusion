@@ -52,11 +52,11 @@ def main(cfg: DictConfig) -> None:
     train_data, test_data = get_dataloaders(size, batch_size_train, batch_size_test)
 
     dataset = {"train": train_data, "test": test_data}
-    batch_size = {"train": batch_size_train, "test": batch_size_test }
+    batch_size = {"train": batch_size_train, "test": batch_size_test}
 
     # linear based noise scheduler
     beta_array = torch.linspace(B_1, B_T, T, dtype=torch.float32).to(device)
-    alpha_array  = 1.0 - beta_array
+    alpha_array = 1.0 - beta_array
     alpha_bar_array = torch.cumprod(alpha_array, dim=0, dtype=torch.float32)
 
     def get_training_batch(split: "str" = "train") -> Tuple[Tensor, Tensor, Tensor]:
@@ -77,6 +77,24 @@ def main(cfg: DictConfig) -> None:
 
     optimizer = torch.optim.Adam(model.parameters(), lr)
 
+    lr = cfg.lr
+    min_lr = cfg.min_lr
+    warmp_up_steps = cfg.warmp_up_steps
+    end_steps = cfg.end_steps
+
+    def get_lr(step):
+        if step < warmp_up_steps:
+            return lr * (step + 1) / (warmp_up_steps + 1)
+        if step > end_steps:
+            return min_lr
+        return min_lr + 0.5 * (lr - min_lr) * (
+            1
+            + (
+                torch.cos(
+                    (step - warmp_up_steps) / (end_steps - warmp_up_steps) * torch.pi
+                )
+            ).item()
+        )
 
     def training_step(split: "str", model, return_loss=False) -> Tensor:
 
@@ -87,7 +105,7 @@ def main(cfg: DictConfig) -> None:
             model.eval()
             loss_final = 0
 
-        with torch.enable_grad() if split == 'train' else torch.no_grad():
+        with torch.enable_grad() if split == "train" else torch.no_grad():
             for b in range(batch_size_accumlation_multiple):
 
                 x_t, t, z = get_training_batch(split)
@@ -132,9 +150,6 @@ def main(cfg: DictConfig) -> None:
             checkpoint["loss"],
         )
 
-    
-
-
     print("Files loaded, setting up model ...\n\n")
     print("device", device)
     print("model params", sum(p.numel() for p in model.parameters()))
@@ -143,6 +158,11 @@ def main(cfg: DictConfig) -> None:
     start = time.time()
 
     for _ in tqdm(range(step, max_steps), desc="Training"):
+
+        # set learning rate
+        lr = get_lr(_)
+        for param in optimizer.param_groups:
+            param["lr"] = lr
 
         if _ % checkpoint_interval == 0:
             loss = training_step("train", model, return_loss=True)
@@ -155,7 +175,6 @@ def main(cfg: DictConfig) -> None:
             ) % len(train_data)
             percentage_complete = 100.0 * (_ + 1) / max_steps
             batch_percentage_complete = 100.0 * (batch_idx) / len(train_data)
-
 
             loss_eval = training_step("test", model)
 
@@ -173,7 +192,7 @@ def main(cfg: DictConfig) -> None:
                 )
                 saved = True
 
-            metric_string = f"Step {_} | Train Loss: {loss:.6f} | Eval Loss: {loss_eval:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete"
+            metric_string = f"Step {_} | Train Loss: {loss:.6f} | Eval Loss: {loss_eval:.6f} | Time: {end:.2f}s | {percentage_complete:.2f}% complete | {batch_percentage_complete:.2f}% dataset complete "
             if saved:
                 metric_string += " | saved model"
 
@@ -183,6 +202,7 @@ def main(cfg: DictConfig) -> None:
 
         else:
             training_step("train", model)
+
 
 if __name__ == "__main__":
     main()
