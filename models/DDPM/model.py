@@ -54,34 +54,52 @@ class TimeEmbedding(nn.Module):
         return t_emb
 
 class ResNetBlock(nn.Module):
-    def __init__(self, numGroups: int, inChannels: int, outChannels: int) -> None:
+    def __init__(self, numGroups: int, inChannels: int, outChannels: int, dropout: float) -> None:
         super().__init__()
 
         assert outChannels % numGroups == 0
 
         self.ch = inChannels
 
-        self.network = nn.Sequential(
+
+        self.gn1 = nn.Sequential(
+            nn.GroupNorm(numGroups, inChannels),
+            nn.SiLU(),
             nn.Conv2d(inChannels, outChannels, 3, 1, 1),
-            nn.GroupNorm(numGroups, outChannels),
-            nn.ReLU(),
-            nn.Conv2d(outChannels, outChannels, 3, 1, 1),
-            nn.GroupNorm(numGroups, outChannels),
         )
 
-        self.conv1x1 = nn.Conv2d(inChannels, outChannels, 1, 1, 0)
-        self.relu = nn.ReLU()
+        self.t_ffn = nn.Sequential(
+            nn.SiLU(),
+            nn.LazyLinear(outChannels),
+        )
 
-    def forward(self, x: Tensor) -> Tensor:
+
+        self.gn2 = nn.Sequential(
+            nn.GroupNorm(numGroups, outChannels),
+            nn.SiLU(),
+            nn.Dropout(dropout),
+            nn.Conv2d(outChannels, outChannels, 3, 1, 1),
+        )
+
+        if inChannels != outChannels:
+            self.conv1x1 = nn.Conv2d(inChannels, outChannels, 1, 1, 0)
+        else:
+            self.conv1x1 = nn.Identity()
+
+    def forward(self, x: Tensor, t: Tensor) -> Tensor:
         assert x.dim() == 4
         assert x.shape[1] == self.ch
 
-        x_forward = self.network(x)
-        y = self.conv1x1(x)
-        logits = self.relu(x_forward + y)
+        residual = self.conv1x1(x)
 
-        return logits
+        x = self.gn1(x)
+        x += self.t_ffn(t)
 
+        assert x.shape == residual.shape
+
+        x = self.gn2(x) + residual
+
+        return x
 
 class Attention(nn.Module):
     def __init__(
@@ -101,25 +119,68 @@ class Attention(nn.Module):
         self.proj = nn.Conv2d(
             in_channel, in_channel, kernel_size=1, stride=1, padding=0
         )
-        self.dropout = nn.Dropout(dropout)
+
         self.n_heads = n_heads
         self.emb = n_emb // n_heads  # embedding per head
 
     def forward(self, x: Tensor) -> Tensor:
+
         assert x.dim() == 4
 
         b, c, h, w = x.shape
-        qkv = self.qkv(x)  # pass through projection
-        qkv = qkv.view(b, 3 * self.n_heads, c // self.n_heads, h * w).transpose(-2, -1)
-        q, k, v = qkv.split(self.n_heads, dim=1)
-        attn = F.softmax((q @ k.transpose(2, 3)) / (self.emb**0.5), dim=-1)
-        attn = self.dropout(attn)
-        self.logits = attn @ v  # (b, hs, h * w, c // hs)
-        self.logits = self.logits.transpose(1, 2).view(b, h * w, c)
-        self.logits = self.logits.permute(0, 2, 1)  # reshape back into images
-        self.logits = self.logits.view(b, c, h, w)
-        return self.dropout(self.proj(self.logits))
+        qkv = self.qkv(x) # (b, 3 * c, h, w)
+        qkv = qkv.view(b, 3 * c, h * w)
+        qkv = qkv.permute(0, 2, 1) # (b, h * w, 3 * c)
+        qkv = qkv.view(b, h * w, 3 * self.n_heads, self.emb)
+        q, k, v = qkv.chunk(3, dim=2) # (b, h * w, n_heads, emb) x 3
 
+        w = torch.einsum("bthe, bThe -> bhtT", q, k) / (self.emb ** 0.5)
+        w = F.softmax(w, dim=-1)
+
+        logits = torch.einsum("bhtT, bThe -> bthe", w, v)
+        logits = logits.view(b, h * w, self.n_heads * self.emb)
+        logits = logits.permute(0, 2, 1).view(b, c, h, w)
+        logits = self.proj(logits)
+
+        return logits
+
+class AttentionBlock(nn.Module):
+    def __init__(self, in_channels: int, n_heads: int, dropout: float) -> None:
+        super().__init__()
+
+        self.gn = nn.GroupNorm(n_heads, in_channels)
+        self.attn = Attention(n_heads, in_channels, dropout)
+
+    def forward(self,x: Tensor) -> Tensor:
+        residual = x
+
+        x = self.gn(x)
+        x = self.attn(x)
+
+        return x + residual
+
+class Downsample(nn.Module):
+
+    def __init__(self, channels):
+        super().__init__()
+        self.downsample = nn.Conv2d(channels, channels, 3, 2, 1)
+
+    def forward(self, x: Tensor) -> Tensor:
+
+        downsample = self.downsample(x)
+        assert downsample.shape[2] == x.shape[2] // 2 and downsample.shape[3] == x.shape[3] // 2
+        return downsample
+
+class Upsample(nn.Module):
+
+    def __init__(self, channels):
+        super().__init__()
+        self.conv = nn.Conv2d(channels, channels, 3, 1, 1)
+
+    def forward(self, x: Tensor) -> Tensor:
+        upsample = F.interpolate(x, scale_factor=2)
+        upsample = self.conv(upsample)
+        return upsample
 
 class Sample(nn.Module):
     def __init__(
