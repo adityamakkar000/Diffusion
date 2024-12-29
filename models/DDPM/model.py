@@ -182,145 +182,86 @@ class Upsample(nn.Module):
         upsample = self.conv(upsample)
         return upsample
 
-class Sample(nn.Module):
-    def __init__(
-        self,
-        inChannel: int,
-        outChannel: int,
-        numGroups: int,
-        stride: Optional[int],
-        dropout: Optional[float],
-        n_heads: Union[int, None],
-        resNetBlocks: int,
-        upsample: bool,
-        sample: bool,
-    ):
-        super().__init__()
-
-        self.network = nn.ModuleList(
-            [
-                ResNetBlock(
-                    numGroups,
-                    inChannel if i == 0 else outChannel,
-                    outChannel,
-                )
-                for i in range(resNetBlocks)
-            ]
-        )
-
-        if n_heads is not None:
-            self.network.append(Attention(n_heads, outChannel, dropout))
-
-        self.sampleBool = (sample, upsample)
-
-        if sample:
-            if not upsample:
-                self.sample = nn.Conv2d(outChannel, outChannel, 3, stride, 1)
-
-    def forward(self, x: Tensor) -> Tensor:
-        for block in self.network:
-            x = block(x)
-
-        if self.sampleBool[0] and not self.sampleBool[1]:
-            x = self.sample(x)
-
-        return x
-
 
 class UNET(nn.Module):
     def __init__(
         self,
-        timeStep: int,
-        originalSize: Tuple[int, int],
-        inChannels: int,
-        channels: List[int],
-        strides: List[int],
-        n_heads: List[int],
-        resNetBlocks: List[int],
-        attn: List[bool],
-        dropout: List[float],
+        T: int,
+        resNetBlocks: int,
+        attn: List[int],
+        dropout: float,
+        ch,
+        ch_mult: List[int],
+        groupSize: int = 8
     ) -> None:
+
         super().__init__()
 
-        assert len(n_heads) == sum(attn)
-        assert len(channels) == len(strides) + 1 == len(attn) == len(resNetBlocks)
-        self.T = timeStep
-        channels = [inChannels] + channels  # for time embedding
-        length = len(channels)
-        n_heads_downsample = n_heads.copy()
-        n_heads_upsample = n_heads.copy()
-        dropout_downsample = dropout.copy()
-        dropout_upsample = dropout.copy()
+        self.time_embedding = TimeEmbedding(T, ch)
+        self.conv_in = nn.Conv2d(3, ch, 3, 1, 1)
 
-        n_heads_downsample.reverse()
-        dropout_downsample.reverse()
-        dummy = 1
-        strides.append(dummy)  # make same length doens't get used
-
-        # start
-        self.time_emb = TimeEmbedding(timeStep, originalSize)
-        self.conv_in = nn.Conv2d(inChannels, inChannels, 3, 1, 1)
-
-        # downsample layers
-        self.downsample_layers = nn.ModuleList(
-            [
-                Sample(
-                    channels[i],
-                    channels[i + 1],
-                    1,
-                    strides[i],
-                    dropout_downsample.pop() if attn[i] else None,
-                    n_heads_downsample.pop() if attn[i] else None,
-                    resNetBlocks[i],
-                    upsample=False,
-                    sample=True if i < length - 1 else False,
-                )
-                for i in range(length - 1)
-            ]
+        self.end = nn.Sequential(
+            nn.GroupNorm(groupSize, ch),
+            nn.SiLU(),
+            nn.Conv2d(ch, 3, 3, 1,1)
         )
 
-        # upsample layers
-        self.upsample_layers = nn.ModuleList(
-            [
-                Sample(
-                    channels[i] + (0 if i == length - 1 else channels[i]),
-                    channels[i - 1],
-                    1,
-                    strides[i - 1],
-                    dropout_upsample.pop() if attn[i - 1] else None,
-                    n_heads_upsample.pop() if attn[i - 1] else None,
-                    resNetBlocks[i - 1],
-                    upsample=True,
-                    sample=True if i < length - 1 else False,
-                )
-                for i in range(length - 1, 0, -1)
-            ]
-        )
+        self.downBlocks = nn.ModuleList()
+        self.upBlocks = nn.ModuleList()
 
-        # end
-        self.end = ResNetBlock(1, 2 * channels[0], inChannels)
+        num_of_blocks = len(ch_mult)
+        chs = []
+        current_channels = ch
+        for i in range(num_of_blocks):
+            out_channels = ch * ch_mult[i]
+            for _ in range(resNetBlocks):
+                self.downBlocks.append(ResNetBlock(groupSize, current_channels, out_channels, dropout))
+                chs.append(current_channels)
+                current_channels = out_channels
+                if attn[i] > 0:
+                    self.downBlocks.append(AttentionBlock(current_channels, attn[i], dropout))
+            if i < num_of_blocks - 1:
+                self.downBlocks.append(Downsample(current_channels))
+
+        self.middleBlocks = nn.ModuleList(
+            [
+                ResNetBlock(groupSize, current_channels, current_channels, dropout),
+                AttentionBlock(current_channels, attn[-1], dropout),
+                ResNetBlock(groupSize, current_channels, current_channels, dropout),
+            ])
+
+        for i in range(reversed(num_of_blocks)):
+            out_channels = ch * ch_mult[i]
+
+            # +1 resnetBlocks since we have resNetBlocks+1 residual for each layer
+            for _ in range(resNetBlocks + 1 ):
+                self.upBlocks.append(ResNetBlock(groupSize, out_channels, chs[-1], dropout))
+                chs.pop()
+                if attn[i] > 0:
+                    self.upBlocks.append(AttentionBlock(out_channels, attn[i], dropout))
+            if i > 0:
+                self.upBlocks.append(Upsample(current_channels))
 
     def forward(self, x: Tensor, t: Tensor) -> Tensor:
-        assert t.shape[0] == x.shape[0]
+        assert x.dim() == 4
+        assert x.shape[1] == 3
 
-        time_emb = self.time_emb(t)
-        x = self.conv_in(x) + time_emb  # (b, c, h, w) + (1,1,h,w)
+        x = self.conv_in(x)
+        t = self.time_embedding(t)
 
-        skip_connections = [x]
+        down_outputs = [x]
+        for block in self.downBlocks:
+            x = block(x, t)
+            down_outputs.append(x)
 
-        for block in self.downsample_layers:
-            x = block(x)
-            skip_connections.append(x)
+        for block in self.middleBlocks:
+            x = block(x, t)
 
-        for i, block in enumerate(self.upsample_layers):
-            sc = skip_connections.pop()
-            if i > 0:
-                x = torch.cat([F.interpolate(x, (sc.shape[2], sc.shape[3])), sc], dim=1)
-            x = block(x)
-
-        sc = skip_connections.pop()
-        x = torch.cat([F.interpolate(x, (sc.shape[2], sc.shape[3])), sc], dim=1)
+        for block in self.upBlocks:
+            x = torch.cat([x, down_outputs[-1]], dim=1) # along channels
+            down_outputs.pop()
+           
+            x = block(x, t)
 
         x = self.end(x)
-
         return x
