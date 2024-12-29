@@ -1,25 +1,8 @@
 
-timeStep: 1000
-originalSize:
-  - 64
-  - 64
-inChannels: 3
-channels:
-  - 32
-  - 64
-  - 128
-strides:
-  - 2
-  - 2
-n_heads:
-  - 1
-resNetBlocks:
-  - 2
-  - 2
-  - 2
-attn:
-  - true
-  - false
-  - false
-dropout:
-  - 0.2
+T: 1000
+resNetBlocks: 2
+attn: [0,0,0,2,1]
+dropout: 0.2
+ch: 32
+ch_mult: [1, 2, 4, 8]
+groupSize: 8

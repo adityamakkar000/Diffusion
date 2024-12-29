@@ -38,7 +38,7 @@ class TrainingConfig:
 @dataclass
 class Config:
     training: TrainingConfig = MISSING
-    model_config: UNet2DModelConfig = MISSING
+    model_config: UNetConfig = MISSING
     model: str = MISSING
     save_dir: str = MISSING
     path: Union[None, str] = MISSING
@@ -199,6 +199,7 @@ def main(cfg: DictConfig) -> None:
             resume="must" if load else "never",
             config=OmegaConf.to_container(cfg),
         )
+
 
     for step in tqdm(range(step_inital, max_steps), desc="Training"):
         current_lr = get_lr(step)

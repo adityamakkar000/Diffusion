@@ -22,7 +22,7 @@ class TimeEmbedding(nn.Module):
     def __init__(self, T: int, t_emb: int):
         super().__init__()
 
-        assert t_emb % 2 == 0, "t_emb must be even"
+        # assert t_emb % 2 == 0, "t_emb must be even"
         timesteps = torch.arange(T)
         exp = (2 / t_emb) * torch.arange(t_emb // 2)
         angluar_freq = torch.pow(1 / 10000, exp)
@@ -31,25 +31,29 @@ class TimeEmbedding(nn.Module):
         sin = torch.sin(theta)  # (T, t_emb//2)
         cos = torch.cos(theta)  # (T, t_emb//2)
 
-        self.pos_embedding = torch.stack([sin, cos], dim=-1).view(T, t_emb)
+        self.pos_embedding = torch.stack([sin, cos], dim=-1).reshape(T, t_emb)
+
+        self.register_buffer("pe", self.pos_embedding)
+
+        self.pos = nn.Embedding(T, t_emb)
         self.ffn = nn.Sequential(
             nn.Linear(t_emb, 4 * t_emb),
             nn.SiLU(),
-            nn.Linear(4 * t_emb, 4 * t_emb),
+            nn.Linear(4 * t_emb, 4 *t_emb),
         )
 
     def forward(self, t: Tensor):
         assert t.dim() == 1
 
-        t_emb = self.pos_embedding(t)  # (b, t_emb)
-        t_emb = self.ffn(t_emb)[..., None, None]  # (b, 4 * t_emb, 1, 1)
+        t_emb = self.pe[t] # (b, t_emb)
+        t_emb = self.ffn(t_emb) # (b, 4 * t_emb)
 
         return t_emb
 
 
 class ResNetBlock(nn.Module):
     def __init__(
-        self, numGroups: int, inChannels: int, outChannels: int, dropout: float
+        self, ch:int, numGroups: int, inChannels: int, outChannels: int, dropout: float
     ) -> None:
         super().__init__()
 
@@ -65,7 +69,7 @@ class ResNetBlock(nn.Module):
 
         self.t_ffn = nn.Sequential(
             nn.SiLU(),
-            nn.LazyLinear(outChannels),
+            nn.Linear(4 * ch, outChannels),
         )
 
         self.gn2 = nn.Sequential(
@@ -87,7 +91,7 @@ class ResNetBlock(nn.Module):
         residual = self.conv1x1(x)
 
         x = self.gn1(x)
-        x += self.t_ffn(t)
+        x += self.t_ffn(t)[..., None, None]
 
         assert x.shape == residual.shape
 
@@ -101,52 +105,43 @@ class Attention(nn.Module):
         self,
         n_heads: int,
         in_channel: int,
-        dropout: float,
     ) -> None:
         super().__init__()
-
-        n_emb = in_channel
-        assert n_emb % n_heads == 0
-
+        assert in_channel % n_heads == 0
         self.qkv = nn.Conv2d(
             in_channel, 3 * in_channel, kernel_size=1, stride=1, padding=0
-        )  # combine qkv for efficency
+        )
         self.proj = nn.Conv2d(
             in_channel, in_channel, kernel_size=1, stride=1, padding=0
         )
-
         self.n_heads = n_heads
-        self.emb = n_emb // n_heads  # embedding per head
+        self.emb = in_channel // n_heads
 
     def forward(self, x: Tensor) -> Tensor:
-        assert x.dim() == 4
-
         b, c, h, w = x.shape
-        qkv = self.qkv(x)  # (b, 3 * c, h, w)
-        qkv = qkv.view(b, 3 * c, h * w)
-        qkv = qkv.permute(0, 2, 1)  # (b, h * w, 3 * c)
-        qkv = qkv.view(b, h * w, 3 * self.n_heads, self.emb)
-        q, k, v = qkv.chunk(3, dim=2)  # (b, h * w, n_heads, emb) x 3
 
-        w = torch.einsum("bthe, bThe -> bhtT", q, k) / (self.emb**0.5)
-        w = F.softmax(w, dim=-1)
+        qkv = self.qkv(x)
+        qkv = qkv.reshape(b, 3, self.n_heads, self.emb, h * w)
+        qkv = qkv.permute(1, 0, 2, 4, 3)
+        q,k,v = qkv.chunk(3, dim=0) # Each: [B, n_heads, H * W, emb]
 
-        logits = torch.einsum("bhtT, bThe -> bthe", w, v)
-        logits = logits.view(b, h * w, self.n_heads * self.emb)
-        logits = logits.permute(0, 2, 1).view(b, c, h, w)
-        logits = self.proj(logits)
+        attn = torch.einsum('...bhte,...bhTe->bhtT', q, k) * (self.emb ** -0.5)
+        attn = F.softmax(attn, dim=-1)
 
-        return logits
+        out = torch.einsum("bhtT, ...bhTe -> bhte", attn, v) #
+        out = out.transpose(-2, -1)
+        out = out.reshape(b, c, h, w)
 
+        return self.proj(out)
 
 class AttentionBlock(nn.Module):
     def __init__(self, in_channels: int, n_heads: int, dropout: float) -> None:
         super().__init__()
 
         self.gn = nn.GroupNorm(n_heads, in_channels)
-        self.attn = Attention(n_heads, in_channels, dropout)
+        self.attn = Attention(n_heads, in_channels)
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, t: Tensor) -> Tensor:
         residual = x
 
         x = self.gn(x)
@@ -160,7 +155,7 @@ class Downsample(nn.Module):
         super().__init__()
         self.downsample = nn.Conv2d(channels, channels, 3, 2, 1)
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, t:Tensor) -> Tensor:
         downsample = self.downsample(x)
         assert (
             downsample.shape[2] == x.shape[2] // 2
@@ -174,7 +169,7 @@ class Upsample(nn.Module):
         super().__init__()
         self.conv = nn.Conv2d(channels, channels, 3, 1, 1)
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, t: Tensor) -> Tensor:
         upsample = F.interpolate(x, scale_factor=2)
         upsample = self.conv(upsample)
         return upsample
@@ -193,6 +188,8 @@ class UNET(nn.Module):
     ) -> None:
         super().__init__()
 
+        assert len(ch_mult) + 1 == len(attn) and attn[-1] > 0, "attn not provided correctly"
+
         self.time_embedding = TimeEmbedding(T, ch)
         self.conv_in = nn.Conv2d(3, ch, 3, 1, 1)
 
@@ -204,40 +201,43 @@ class UNET(nn.Module):
         self.upBlocks = nn.ModuleList()
 
         num_of_blocks = len(ch_mult)
-        chs = []
+        chs = [ch]
         current_channels = ch
+
         for i in range(num_of_blocks):
             out_channels = ch * ch_mult[i]
             for _ in range(resNetBlocks):
                 self.downBlocks.append(
-                    ResNetBlock(groupSize, current_channels, out_channels, dropout)
+                    ResNetBlock(ch, groupSize, current_channels, out_channels, dropout)
                 )
-                chs.append(current_channels)
+                chs.append(out_channels)
                 current_channels = out_channels
                 if attn[i] > 0:
+                    print('hello')
                     self.downBlocks.append(
                         AttentionBlock(current_channels, attn[i], dropout)
                     )
             if i < num_of_blocks - 1:
                 self.downBlocks.append(Downsample(current_channels))
+                chs.append(out_channels)
 
         self.middleBlocks = nn.ModuleList(
             [
-                ResNetBlock(groupSize, current_channels, current_channels, dropout),
+                ResNetBlock(ch, groupSize, current_channels, current_channels, dropout),
                 AttentionBlock(current_channels, attn[-1], dropout),
-                ResNetBlock(groupSize, current_channels, current_channels, dropout),
+                ResNetBlock(ch, groupSize, current_channels, current_channels, dropout),
             ]
         )
 
-        for i in range(reversed(num_of_blocks)):
+        for i in reversed(range(num_of_blocks)):
             out_channels = ch * ch_mult[i]
 
-            # +1 resnetBlocks since we have resNetBlocks+1 residual for each layer
             for _ in range(resNetBlocks + 1):
                 self.upBlocks.append(
-                    ResNetBlock(groupSize, out_channels, chs[-1], dropout)
+                    ResNetBlock(ch, groupSize, current_channels + chs[-1], out_channels, dropout)
                 )
                 chs.pop()
+                current_channels = out_channels
                 if attn[i] > 0:
                     self.upBlocks.append(AttentionBlock(out_channels, attn[i], dropout))
             if i > 0:
@@ -250,19 +250,23 @@ class UNET(nn.Module):
         x = self.conv_in(x)
         t = self.time_embedding(t)
 
+
         down_outputs = [x]
         for block in self.downBlocks:
             x = block(x, t)
+            if isinstance(block, AttentionBlock):
+                down_outputs.pop()
             down_outputs.append(x)
 
         for block in self.middleBlocks:
             x = block(x, t)
 
         for block in self.upBlocks:
-            x = torch.cat([x, down_outputs[-1]], dim=1)  # along channels
-            down_outputs.pop()
+            if isinstance(block, ResNetBlock):
+                x = torch.cat([x, down_outputs[-1]], dim=1)  # along channels
+                down_outputs.pop()
 
             x = block(x, t)
-
         x = self.end(x)
+
         return x
