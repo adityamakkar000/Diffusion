@@ -20,6 +20,39 @@ class UNetConfig:
     dropout: List[float] = MISSING
 
 
+
+class TimeEmbedding(nn.Module):
+    def __init__(
+        self,
+        T: int,
+        t_emb: int
+    ):
+        super().__init__()
+
+        assert t_emb % 2 == 0, "t_emb must be even"
+        timesteps = torch.arange(T)
+        exp = (2/t_emb) * torch.arange(t_emb//2)
+        angluar_freq = torch.pow(1/10000, exp)
+        theta = angluar_freq[..., None] * timesteps
+        theta = theta.T
+        sin = torch.sin(theta) # (T, t_emb//2)
+        cos = torch.cos(theta) # (T, t_emb//2)
+
+        self.pos_embedding = torch.stack([sin, cos],dim=-1).view(T, t_emb)
+        self.ffn = nn.Sequential(
+            nn.Linear(t_emb, 4 * t_emb),
+            nn.SiLU(),
+            nn.Linear(4 * t_emb, 4 * t_emb),
+        )
+
+    def forward(self, t: Tensor):
+        assert t.dim() == 1
+
+        t_emb = self.pos_embedding(t) # (b, t_emb)
+        t_emb = self.ffn(t_emb)[..., None, None]# (b, 4 * t_emb, 1, 1)
+
+        return t_emb
+
 class ResNetBlock(nn.Module):
     def __init__(self, numGroups: int, inChannels: int, outChannels: int) -> None:
         super().__init__()
@@ -48,27 +81,6 @@ class ResNetBlock(nn.Module):
         logits = self.relu(x_forward + y)
 
         return logits
-
-
-class TimeEmbedding(nn.Module):
-    def __init__(
-        self,
-        timesteps: int,
-        size: Tuple[int, int],
-    ):
-        super().__init__()
-
-        self.pos_embedding = nn.Embedding(timesteps, size[0] * size[1])
-        self.size = size
-
-    def forward(self, t: Tensor):
-        assert t.dim() == 1
-
-        b = t.shape[0]
-        t_emb = self.pos_embedding(t)
-        t_emb = t_emb.view(b, 1, self.size[0], self.size[1])
-
-        return t_emb
 
 
 class Attention(nn.Module):
