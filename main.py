@@ -58,8 +58,9 @@ def main(cfg: DictConfig) -> None:
         print(f"using model found at {path}")
     else:
         load = False
-        if not os.path.exists(path):
-            os.makedirs(path)
+
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
 
     OmegaConf.save(config=cfg, f=os.path.join(save_dir, "config.yaml"))
     print(OmegaConf.to_yaml(cfg))
@@ -172,7 +173,7 @@ def main(cfg: DictConfig) -> None:
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         lowest_loss = checkpoint["loss"]
-        step_inital = checkpoint["step"]
+        step_inital = checkpoint["step"] if cfg.path == cfg.save_dir else 0
         print(
             "loaded model from checkpoint at step",
             checkpoint["step"],
@@ -189,15 +190,29 @@ def main(cfg: DictConfig) -> None:
 
     wandb_log = True if cfg.description is not None else False
 
+    resume = True if load and cfg.path == cfg.save_dir else False
+
     if wandb_log:
         current_time = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        wandb.init(
-            project="diffusion",
-            name=f"{cfg.save_dir}_{cfg.description}_{current_time}",
-            id=cfg.save_dir,
-            resume="must" if load and cfg.path == cfg.save_dir else "never",
-            config=OmegaConf.to_container(cfg),
-        )
+        if resume:
+            wandb.init(
+                project="diffusion",
+                name=f"{cfg.save_dir}_{cfg.description}_{current_time}",
+                id=cfg.save_dir,
+                resume_from=f"{cfg.save_dir}?_step={step_inital}",
+                config=OmegaConf.to_container(cfg),
+            )
+        else:
+            wandb.init(
+                project="diffusion",
+                name=f"{cfg.save_dir}_{cfg.description}_{current_time}",
+                id=cfg.save_dir,
+                resume="allow",
+                config=OmegaConf.to_container(cfg),
+            )
+
+
+
 
     for step in tqdm(range(step_inital, max_steps), desc="Training"):
         current_lr = get_lr(step)
@@ -225,6 +240,7 @@ def main(cfg: DictConfig) -> None:
 
             saved = False
 
+            # best save 
             if loss_eval < lowest_loss:
                 lowest_loss = loss_eval
                 torch.save(
@@ -237,6 +253,17 @@ def main(cfg: DictConfig) -> None:
                     f"{save_dir}/model.pt",
                 )
                 saved = True
+
+            # increment save
+            torch.save(
+                {
+                    "step": step,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "loss": round(loss_eval, 6),
+                },
+                f"{save_dir}/checkpoints/model_{step}.pt",
+            )
 
             if not wandb_log:
                 percentage_complete = 100.0 * (step + 1) / max_steps

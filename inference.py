@@ -1,7 +1,6 @@
 import torch
 import matplotlib.pyplot as plt
 from models.DDPM.model import UNET
-from models.hf_diff.diff import createHFDiffusion
 import os
 import hydra
 from omegaconf import DictConfig, OmegaConf
