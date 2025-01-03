@@ -216,7 +216,6 @@ class UNET(nn.Module):
                 chs.append(out_channels)
                 current_channels = out_channels
                 if attn[i] > 0:
-                    print("hello")
                     self.downBlocks.append(
                         AttentionBlock(current_channels, attn[i], dropout)
                     )

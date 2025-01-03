@@ -51,6 +51,7 @@ cs.store(name="base", node=Config)
 
 @hydra.main(version_base=None, config_path="./configs")
 def main(cfg: DictConfig) -> None:
+    save_dir = f"./runs/{cfg.save_dir}"
     if "path" in cfg and cfg.path is not None:
         load = True
         path = f"./runs/{cfg.path}"
@@ -58,11 +59,10 @@ def main(cfg: DictConfig) -> None:
         print(f"using model found at {path}")
     else:
         load = False
-        path = f"./runs/{cfg.save_dir}"
         if not os.path.exists(path):
             os.makedirs(path)
-        OmegaConf.save(config=cfg, f=os.path.join(path, "config.yaml"))
 
+    OmegaConf.save(config=cfg, f=os.path.join(save_dir, "config.yaml"))
     print(OmegaConf.to_yaml(cfg))
 
     batch_size_train = cfg.training.batch_size_train
@@ -235,7 +235,7 @@ def main(cfg: DictConfig) -> None:
                         "optimizer_state_dict": optimizer.state_dict(),
                         "loss": round(loss_eval, 6),
                     },
-                    f"{path}/model.pt",
+                    f"{save_dir}/model.pt",
                 )
                 saved = True
 

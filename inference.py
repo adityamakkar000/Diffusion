@@ -82,7 +82,7 @@ def main(cfg: DictConfig) -> None:
 
         for t in tqdm(reversed(range(T)), desc="Generating images"):
             timesteps = t * torch.ones(batch_size).to(device).long()
-            eps_pred = model(x_t, timesteps)["sample"]
+            eps_pred = model(x_t, timesteps)
 
             alpha_bar_t = alpha_bar_array[timesteps].view(-1, 1, 1, 1)
             beta_t = beta_array[timesteps].view(-1, 1, 1, 1)
@@ -91,7 +91,7 @@ def main(cfg: DictConfig) -> None:
             mean = (1 / alpha_t.sqrt()) * (
                 x_t - (beta_t / ((1 - alpha_bar_t).sqrt())) * eps_pred
             )
-            mean = mean.clamp(-1, 1)  # numerical stability
+            # mean = mean.clamp(-1, 1)  # numerical stability
 
             epsilon = torch.zeros_like(x_t)
 
@@ -105,7 +105,8 @@ def main(cfg: DictConfig) -> None:
             if t % 100 == 0:
                 save_image(x_t[0], f"{path}/samples/{t}.png")
 
-        save_image(x_t[0], f"{path}/generated_image.png")
+        img = torch.clamp(x_t, -1, 1)
+        save_image(img[0], f"{path}/generated_image.png")
         print(f"saved image at {path}/generated_image.png")
 
 
