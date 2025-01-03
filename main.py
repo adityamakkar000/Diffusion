@@ -200,7 +200,6 @@ def main(cfg: DictConfig) -> None:
             config=OmegaConf.to_container(cfg),
         )
 
-
     for step in tqdm(range(step_inital, max_steps), desc="Training"):
         current_lr = get_lr(step)
         for param in optimizer.param_groups:

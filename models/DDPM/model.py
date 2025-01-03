@@ -39,21 +39,21 @@ class TimeEmbedding(nn.Module):
         self.ffn = nn.Sequential(
             nn.Linear(t_emb, 4 * t_emb),
             nn.SiLU(),
-            nn.Linear(4 * t_emb, 4 *t_emb),
+            nn.Linear(4 * t_emb, 4 * t_emb),
         )
 
     def forward(self, t: Tensor):
         assert t.dim() == 1
 
-        t_emb = self.pe[t] # (b, t_emb)
-        t_emb = self.ffn(t_emb) # (b, 4 * t_emb)
+        t_emb = self.pe[t]  # (b, t_emb)
+        t_emb = self.ffn(t_emb)  # (b, 4 * t_emb)
 
         return t_emb
 
 
 class ResNetBlock(nn.Module):
     def __init__(
-        self, ch:int, numGroups: int, inChannels: int, outChannels: int, dropout: float
+        self, ch: int, numGroups: int, inChannels: int, outChannels: int, dropout: float
     ) -> None:
         super().__init__()
 
@@ -123,16 +123,17 @@ class Attention(nn.Module):
         qkv = self.qkv(x)
         qkv = qkv.reshape(b, 3, self.n_heads, self.emb, h * w)
         qkv = qkv.permute(1, 0, 2, 4, 3)
-        q,k,v = qkv.chunk(3, dim=0) # Each: [B, n_heads, H * W, emb]
+        q, k, v = qkv.chunk(3, dim=0)  # Each: [B, n_heads, H * W, emb]
 
-        attn = torch.einsum('...bhte,...bhTe->bhtT', q, k) * (self.emb ** -0.5)
+        attn = torch.einsum("...bhte,...bhTe->bhtT", q, k) * (self.emb**-0.5)
         attn = F.softmax(attn, dim=-1)
 
-        out = torch.einsum("bhtT, ...bhTe -> bhte", attn, v) #
+        out = torch.einsum("bhtT, ...bhTe -> bhte", attn, v)  #
         out = out.transpose(-2, -1)
         out = out.reshape(b, c, h, w)
 
         return self.proj(out)
+
 
 class AttentionBlock(nn.Module):
     def __init__(self, in_channels: int, n_heads: int, dropout: float) -> None:
@@ -155,7 +156,7 @@ class Downsample(nn.Module):
         super().__init__()
         self.downsample = nn.Conv2d(channels, channels, 3, 2, 1)
 
-    def forward(self, x: Tensor, t:Tensor) -> Tensor:
+    def forward(self, x: Tensor, t: Tensor) -> Tensor:
         downsample = self.downsample(x)
         assert (
             downsample.shape[2] == x.shape[2] // 2
@@ -188,7 +189,9 @@ class UNET(nn.Module):
     ) -> None:
         super().__init__()
 
-        assert len(ch_mult) + 1 == len(attn) and attn[-1] > 0, "attn not provided correctly"
+        assert (
+            len(ch_mult) + 1 == len(attn) and attn[-1] > 0
+        ), "attn not provided correctly"
 
         self.time_embedding = TimeEmbedding(T, ch)
         self.conv_in = nn.Conv2d(3, ch, 3, 1, 1)
@@ -213,7 +216,7 @@ class UNET(nn.Module):
                 chs.append(out_channels)
                 current_channels = out_channels
                 if attn[i] > 0:
-                    print('hello')
+                    print("hello")
                     self.downBlocks.append(
                         AttentionBlock(current_channels, attn[i], dropout)
                     )
@@ -234,7 +237,9 @@ class UNET(nn.Module):
 
             for _ in range(resNetBlocks + 1):
                 self.upBlocks.append(
-                    ResNetBlock(ch, groupSize, current_channels + chs[-1], out_channels, dropout)
+                    ResNetBlock(
+                        ch, groupSize, current_channels + chs[-1], out_channels, dropout
+                    )
                 )
                 chs.pop()
                 current_channels = out_channels
@@ -249,7 +254,6 @@ class UNET(nn.Module):
 
         x = self.conv_in(x)
         t = self.time_embedding(t)
-
 
         down_outputs = [x]
         for block in self.downBlocks:
