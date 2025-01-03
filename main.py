@@ -196,7 +196,7 @@ def main(cfg: DictConfig) -> None:
             project="diffusion",
             name=f"{cfg.save_dir}_{cfg.description}_{current_time}",
             id=cfg.save_dir,
-            resume="must" if load else "never",
+            resume="must" if load and cfg.path == cfg.save_dir else "never",
             config=OmegaConf.to_container(cfg),
         )
 
