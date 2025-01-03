@@ -3,7 +3,6 @@ import torch.nn.functional as F
 from torch import Tensor
 from setupDataset import get_dataloaders
 from models.DDPM.model import UNET, UNetConfig
-from models.hf_diff.diff import createHFDiffusion, UNet2DModelConfig
 import time
 import os
 import math
