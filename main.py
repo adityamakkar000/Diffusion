@@ -106,13 +106,7 @@ def main(cfg: DictConfig) -> None:
 
         return x_t, t, z
 
-    if cfg.model == "self":
-        model = UNET(**diffusion_params).to(device)
-    elif cfg.model == "HF":
-        model = createHFDiffusion(diffusion_params).to(device)
-    else:
-        raise NotImplementedError("model not implemented")
-
+    model = UNET(**diffusion_params).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr)
 
     lr = cfg.training.lr
@@ -240,7 +234,7 @@ def main(cfg: DictConfig) -> None:
 
             saved = False
 
-            # best save 
+            # best save
             if loss_eval < lowest_loss:
                 lowest_loss = loss_eval
                 torch.save(
