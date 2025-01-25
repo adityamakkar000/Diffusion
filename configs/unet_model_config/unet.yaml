@@ -1,5 +1,4 @@
 
-T: 1000
 resNetBlocks: 2
 attn: [0,0,0,2,1]
 dropout: 0.2

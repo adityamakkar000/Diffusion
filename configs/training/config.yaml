@@ -1,6 +1,6 @@
-batch_size_train: 512
+batch_size_train: 256
 batch_size_accumulation_multiple: 1
-batch_size_test: 512
+batch_size_test: 256
 max_steps: 500000
 size: [64, 64]
 B_1: 0.0001
@@ -10,5 +10,5 @@ warmup_steps: 100
 end_steps: 50000
 min_lr: 1e-6
 lr: 1e-4
-checkpoint_interval: 500
+checkpoint_interval: 20
 dataset: cifar

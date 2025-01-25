@@ -3,13 +3,14 @@ import torch.nn.functional as F
 from torch import Tensor
 from setupDataset import get_dataloaders
 from models.DDPM.model import UNET, UNetConfig
+from models.DiT.model import DiT, DiTConfig
 import time
 import os
 import math
 import hydra
 from omegaconf import DictConfig, OmegaConf, MISSING
 from hydra.core.config_store import ConfigStore
-from typing import Tuple, Union
+from typing import Tuple, Union, Optional
 from tqdm import tqdm
 from dataclasses import dataclass
 import wandb
@@ -37,16 +38,15 @@ class TrainingConfig:
 @dataclass
 class Config:
     training: TrainingConfig = MISSING
-    model_config: UNetConfig = MISSING
     model: str = MISSING
+    unet_model_config: Optional[UNetConfig] = None
+    dit_model_config: Optional[DiTConfig] = None
     save_dir: str = MISSING
     path: Union[None, str] = MISSING
     description: Union[None, str] = MISSING
 
-
 cs = ConfigStore.instance()
 cs.store(name="base", node=Config)
-
 
 @hydra.main(version_base=None, config_path="./configs")
 def main(cfg: DictConfig) -> None:
@@ -65,13 +65,19 @@ def main(cfg: DictConfig) -> None:
     OmegaConf.save(config=cfg, f=os.path.join(save_dir, "config.yaml"))
     print(OmegaConf.to_yaml(cfg))
 
+    assert cfg.model in ["UNET", "DiT"], "model must be UNET or DiT"
+    assert not(cfg.model == "DiT" and cfg.dit_model_config is None), "DiT model config must be provided"
+    assert not(cfg.model == "UNET" and cfg.unet_model_config is None), "UNET model config must be provided"
+
     batch_size_train = cfg.training.batch_size_train
     batch_size_accumlation_multiple = cfg.training.batch_size_accumulation_multiple
     batch_size_test = cfg.training.batch_size_test
     lr = cfg.training.lr
 
-    size = cfg.training.size
     ds_split = cfg.training.dataset
+    size = cfg.training.size
+    if ds_split == "cifar":
+        size = (32, 32)
 
     B_1 = cfg.training.B_1
     B_T = cfg.training.B_T
@@ -79,7 +85,6 @@ def main(cfg: DictConfig) -> None:
 
     checkpoint_interval = cfg.training.checkpoint_interval
 
-    diffusion_params = cfg.model_config
     if torch.cuda.is_available():
         device = "cuda"
     else:
@@ -106,7 +111,15 @@ def main(cfg: DictConfig) -> None:
 
         return x_t, t, z
 
-    model = UNET(**diffusion_params).to(device)
+    if cfg.model == "UNET":
+        model = UNET(T=T, **cfg.unet_model_config)
+    elif cfg.model == "DiT":
+        print(cfg.dit_model_config)
+        model = DiT(T=T, length=size[0],**cfg.dit_model_config)
+    else:
+        raise ValueError("model must be UNET or DiT")
+
+    model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr)
 
     lr = cfg.training.lr
@@ -205,9 +218,6 @@ def main(cfg: DictConfig) -> None:
                 config=OmegaConf.to_container(cfg),
             )
 
-
-
-
     for step in tqdm(range(step_inital, max_steps), desc="Training"):
         current_lr = get_lr(step)
         for param in optimizer.param_groups:
@@ -233,6 +243,10 @@ def main(cfg: DictConfig) -> None:
                 )
 
             saved = False
+
+            if not os.path.exists(f"{save_dir}/checkpoints"):
+                os.makedirs(f"{save_dir}/checkpoints")
+
 
             # best save
             if loss_eval < lowest_loss:

@@ -9,7 +9,6 @@ from omegaconf import MISSING
 
 @dataclass
 class UNetConfig:
-    T: int = MISSING
     resNetBlocks: int = MISSING
     attn: List[int] = MISSING
     dropout: float = MISSING
@@ -35,7 +34,6 @@ class TimeEmbedding(nn.Module):
 
         self.register_buffer("pe", self.pos_embedding)
 
-        self.pos = nn.Embedding(T, t_emb)
         self.ffn = nn.Sequential(
             nn.Linear(t_emb, 4 * t_emb),
             nn.SiLU(),

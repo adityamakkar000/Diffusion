@@ -1,10 +1,11 @@
 defaults:
   - base
   - training: config
-  - model_config: self
+  - unet_model_config: unet
+  - dit_model_config: dit
   - _self_
 
-model: self
-save_dir: cifarRun
-path: test1
-description: cifarRun
+model: UNET
+save_dir: hello
+path: !!null
+description: !!null
