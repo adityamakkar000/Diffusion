@@ -14,6 +14,7 @@ class DiTConfig:
     dropout: float = MISSING
     n_heads: int = MISSING
 
+
 class TimeEmbedding(nn.Module):
     def __init__(self, T: int, t_emb: int):
         super().__init__()
@@ -83,9 +84,8 @@ class MHA(nn.Module):
 
 
 class DiTBlock(nn.Module):
-    def __init__(self, hidden_size, n_heads,dropout):
+    def __init__(self, hidden_size, n_heads, dropout):
         super().__init__()
-
 
         self.hidden_size = hidden_size
         self.layernorm1 = nn.LayerNorm(hidden_size)
@@ -94,9 +94,9 @@ class DiTBlock(nn.Module):
         self.MHA = MHA(hidden_size, n_heads, dropout)
 
         self.scale_shift = nn.Sequential(
-          nn.Linear(hidden_size, 6 * hidden_size),
-          nn.SiLU(),
-          nn.Linear(6 *hidden_size, 6 *hidden_size),
+            nn.Linear(hidden_size, 6 * hidden_size),
+            nn.SiLU(),
+            nn.Linear(6 * hidden_size, 6 * hidden_size),
         )
 
         self.ffn = nn.Sequential(
@@ -106,10 +106,9 @@ class DiTBlock(nn.Module):
         )
 
     def forward(self, x: Tensor, t: Tensor) -> Tensor:
-
         t_emb = self.scale_shift(t)
         gamma_1, beta_1, alpha_1, gamma_2, beta_2, alpha_2 = torch.chunk(
-           t_emb, 6, dim=-1
+            t_emb, 6, dim=-1
         )
 
         residual = x
@@ -126,14 +125,14 @@ class DiTBlock(nn.Module):
 
         return x
 
+
 class DiT(nn.Module):
     def __init__(self, T, length, patch_size, hidden_size, layers, dropout, n_heads):
-
         super().__init__()
 
-        assert (
-            length % patch_size == 0
-        ), f"length {length} must be divisible by patch_size {patch_size}"
+        assert length % patch_size == 0, (
+            f"length {length} must be divisible by patch_size {patch_size}"
+        )
         assert hidden_size % 2 == 0, f"hidden size {hidden_size} must be divisible by 2"
         self.length = length
         self.patch_size = patch_size

@@ -187,9 +187,9 @@ class UNET(nn.Module):
     ) -> None:
         super().__init__()
 
-        assert (
-            len(ch_mult) + 1 == len(attn) and attn[-1] > 0
-        ), "attn not provided correctly"
+        assert len(ch_mult) + 1 == len(attn) and attn[-1] > 0, (
+            "attn not provided correctly"
+        )
 
         self.time_embedding = TimeEmbedding(T, ch)
         self.conv_in = nn.Conv2d(3, ch, 3, 1, 1)

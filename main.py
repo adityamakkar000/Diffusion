@@ -45,8 +45,10 @@ class Config:
     path: Union[None, str] = MISSING
     description: Union[None, str] = MISSING
 
+
 cs = ConfigStore.instance()
 cs.store(name="base", node=Config)
+
 
 @hydra.main(version_base=None, config_path="./configs")
 def main(cfg: DictConfig) -> None:
@@ -66,8 +68,12 @@ def main(cfg: DictConfig) -> None:
     print(OmegaConf.to_yaml(cfg))
 
     assert cfg.model in ["UNET", "DiT"], "model must be UNET or DiT"
-    assert not(cfg.model == "DiT" and cfg.dit_model_config is None), "DiT model config must be provided"
-    assert not(cfg.model == "UNET" and cfg.unet_model_config is None), "UNET model config must be provided"
+    assert not (cfg.model == "DiT" and cfg.dit_model_config is None), (
+        "DiT model config must be provided"
+    )
+    assert not (cfg.model == "UNET" and cfg.unet_model_config is None), (
+        "UNET model config must be provided"
+    )
 
     batch_size_train = cfg.training.batch_size_train
     batch_size_accumlation_multiple = cfg.training.batch_size_accumulation_multiple
@@ -114,8 +120,7 @@ def main(cfg: DictConfig) -> None:
     if cfg.model == "UNET":
         model = UNET(T=T, **cfg.unet_model_config)
     elif cfg.model == "DiT":
-        print(cfg.dit_model_config)
-        model = DiT(T=T, length=size[0],**cfg.dit_model_config)
+        model = DiT(T=T, length=size[0], **cfg.dit_model_config)
     else:
         raise ValueError("model must be UNET or DiT")
 
@@ -246,7 +251,6 @@ def main(cfg: DictConfig) -> None:
 
             if not os.path.exists(f"{save_dir}/checkpoints"):
                 os.makedirs(f"{save_dir}/checkpoints")
-
 
             # best save
             if loss_eval < lowest_loss:

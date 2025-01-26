@@ -1,13 +1,14 @@
 import torch
 import matplotlib.pyplot as plt
 from models.DDPM.model import UNET
+from models.DiT.model import DiT
 import os
 import hydra
 from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
 
 
-@hydra.main(version_base=None, config_path="./configs")
+@hydra.main(version_base=None, config_path="./configs", config_name="load")
 def main(cfg: DictConfig) -> None:
     if "path" in cfg and cfg.path is not None:
         path = f"./runs/{cfg.path}"
@@ -20,6 +21,14 @@ def main(cfg: DictConfig) -> None:
     if not os.path.exists(f"{path}/samples"):
         os.makedirs(f"{path}/samples")
 
+    assert cfg.model in ["UNET", "DiT"], "model must be UNET or DiT"
+    assert not (cfg.model == "DiT" and cfg.dit_model_config is None), (
+        "DiT model config must be provided"
+    )
+    assert not (cfg.model == "UNET" and cfg.unet_model_config is None), (
+        "UNET model config must be provided"
+    )
+
     print(OmegaConf.to_yaml(cfg))
     print(f"Saving images at {path}")
 
@@ -30,7 +39,6 @@ def main(cfg: DictConfig) -> None:
     B_1 = cfg.training.B_1
     B_T = cfg.training.B_T
     T = cfg.training.T
-    diffusion_params = cfg.model_config
 
     if torch.cuda.is_available():
         device = "cuda"
@@ -47,13 +55,14 @@ def main(cfg: DictConfig) -> None:
         img = img.type(torch.uint8)
         plt.imsave(path, img.permute(1, 2, 0).cpu().detach().numpy(), format="png")
 
-    if cfg.model == "self":
-        model = UNET(**diffusion_params).to(device)
-    elif cfg.model == "HF":
-        model = createHFDiffusion(diffusion_params).to(device)
+    if cfg.model == "UNET":
+        model = UNET(T=T, **cfg.unet_model_config)
+    elif cfg.model == "DiT":
+        model = DiT(T=T, length=size[0], **cfg.dit_model_config)
     else:
-        raise NotImplementedError("model not implemented")
+        raise ValueError("model must be UNET or DiT")
 
+    model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr)
 
     checkpoint = torch.load(f"{path}/model.pt", weights_only=True, map_location=device)

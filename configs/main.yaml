@@ -5,7 +5,7 @@ defaults:
   - dit_model_config: dit
   - _self_
 
-model: UNET
+model: DiT
 save_dir: hello
-path: !!null
+path: hello
 description: !!null
