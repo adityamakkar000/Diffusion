@@ -274,7 +274,7 @@ def main(cfg: DictConfig) -> None:
                     "optimizer_state_dict": optimizer.state_dict(),
                     "loss": round(loss_eval, 6),
                 },
-                f"{save_dir}/checkpoints/model_{step}.pt",
+                f"{save_dir}/checkpoints/model.pt",
             )
 
             if not wandb_log:

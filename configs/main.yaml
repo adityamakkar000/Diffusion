@@ -7,5 +7,5 @@ defaults:
 
 model: DiT
 save_dir: hello
-path: hello
+path: !!null
 description: !!null
