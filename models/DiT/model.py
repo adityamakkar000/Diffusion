@@ -4,6 +4,7 @@ from torch import Tensor
 from einops import rearrange
 from dataclasses import dataclass
 from omegaconf import MISSING
+import torch.nn.functional as F
 
 
 @dataclass
@@ -57,6 +58,7 @@ class MHA(nn.Module):
 
         self.qkv = nn.Linear(hidden_size, 3 * hidden_size)
 
+        self.dropout = dropout
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
 
@@ -72,11 +74,18 @@ class MHA(nn.Module):
             x, "b t (n h s) ->  n b h t s", n=3, h=self.n_heads, s=self.head_dim
         )
         q, k, v = torch.chunk(x, 3, dim=0)  # each: (b n_heads T head_size)
-        wei = torch.einsum("...bnth, ...bnTh ->bntT", q, k) / self.hidden_size**0.5
-        wei = torch.softmax(wei, dim=-1)
-        wei = self.dropout1(wei)
 
-        x = torch.einsum("bntT, ...bnTh ->bnth", wei, v)
+        q = q.squeeze(0)
+        k = k.squeeze(0)
+        v = v.squeeze(0)
+
+        # wei = torch.einsum("bnth, bnTh ->bntT", q, k) / self.hidden_size**0.5
+        # wei = torch.softmax(wei, dim=-1)
+        # wei = self.dropout1(wei)
+        # x = torch.einsum("bntT, bnTh ->bnth", wei, v)
+
+        x = F.scaled_dot_product_attention(q, k, v, dropout_p=self.dropout)
+
         x = rearrange(x, "b n t h -> b t (n h)")
         x = self.dropout2(self.ffn(x))
 

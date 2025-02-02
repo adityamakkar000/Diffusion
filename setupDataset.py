@@ -24,8 +24,13 @@ class Dataset:
     def __len__(self) -> int:
         return self.length
 
-    def __call__(self) -> Tensor:
-        indices = torch.randint(0, self.length, (self.batch_size,)).int()
+    def __call__(self, idx=None) -> Tensor:
+        if idx is None:
+            indices = torch.randint(0, self.length, (self.batch_size,)).int()
+        else:
+            indices = torch.randint(
+                idx[0], idx[1],(self.batch_size,)
+            ).int()
         img = torch.cat([self.data[i][0] for i in indices], dim=0)
         return img
 
@@ -116,5 +121,4 @@ def get_dataloaders(ds_split, size, batch_size_train, batch_size_test):
 
 if __name__ == "__main__":
     x, y = get_dataloaders_cifar()
-    x, y = get_dataloaders_celeba((64, 64))
-    print("good to go")
+    # x, y = get_dataloaders_celeba((64, 64))
