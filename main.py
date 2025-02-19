@@ -171,20 +171,21 @@ def main(cfg: DictConfig) -> None:
         return x_t, t, z
 
     if cfg.model == "UNET":
-        model = UNET(T=T, **cfg.unet_model_config)
+        model = UNET(T=T, **cfg.unet_model_config).to(device)
     elif cfg.model == "DiT":
-        model = DiT(T=T, length=size[0], **cfg.dit_model_config)
+        model = DiT(T=T, length=size[0], **cfg.dit_model_config).to(device)
     else:
         raise ValueError("model must be UNET or DiT")
 
-    model = model.to(device)
-    try:
-        model = torch.compile(model)
-        if master_process:
-            print("model compiled with torch compile")
-    except:
-        if master_process:
-            print("model could not compile")
+    if device != 'mps' and device != 'cpu':
+        try:
+            model = torch.compile(model)
+            if master_process:
+                print("model compiled with torch compile")
+        except:
+            if master_process:
+                print("model could not compile")
+
     optimizer = torch.optim.Adam(model.parameters(), lr)
 
     if ddp:
